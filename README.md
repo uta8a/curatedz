@@ -1,0 +1,2 @@
+# curatedz
+information gathering tool
