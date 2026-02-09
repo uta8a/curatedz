@@ -69,18 +69,6 @@ prefix_rule(
 )
 
 prefix_rule(
-    pattern = ["gh", "api"],
-    decision = "allow",
-    justification = "Allow read-only API queries for inspection workflows",
-    match = [
-        "gh api repos/uta8a/curatedz",
-    ],
-    not_match = [
-        "gh repo view uta8a/curatedz",
-    ],
-)
-
-prefix_rule(
     pattern = ["gh", "pr", ["view", "list", "checks"]],
     decision = "allow",
     justification = "Read-only PR inspection for review and CI checks",
