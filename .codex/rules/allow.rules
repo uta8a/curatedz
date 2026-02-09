@@ -133,15 +133,15 @@ prefix_rule(
 )
 
 prefix_rule(
-    pattern = ["git", ["add", "commit", "push", "tag", "merge", "rebase", "cherry-pick", "pull"]],
+    pattern = ["git", ["add", "commit", "tag", "merge", "rebase", "cherry-pick", "pull"]],
     decision = "allow",
     justification = "Repository state changes or remote sync",
     match = [
         "git add .codex/skills/check-ci-results/SKILL.md",
         "git commit -m \"chore(codex): refine CI skill\"",
-        "git push origin chore/codex-settings",
     ],
     not_match = [
+        "git push origin chore/codex-settings",
         "git status",
         "git diff --stat",
     ],
