@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codex CLI Rules Author"
+  short_description: "Codex CLIの.rulesポリシーを設計・更新する"
+  default_prompt: "Create or refine Codex CLI .rules policies using precise prefix_rule boundaries and safe prompt decisions."
