@@ -67,7 +67,7 @@ awk '
     if ($0 ~ /"/) {
       cmd = $0
       sub(/^[^"]*"/, "", cmd)
-      sub(/",[[:space:]]*$/, "", cmd)
+      sub(/"[[:space:]]*,?[[:space:]]*$/, "", cmd)
       gsub(/\\"/, "\"", cmd)
       print FILENAME "\t" decision "\t" section "\t" cmd
     }
