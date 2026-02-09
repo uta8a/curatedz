@@ -1,0 +1,4 @@
+interface:
+  display_name: "GitHub PR Creator"
+  short_description: "gh CLIでテンプレ準拠のPRを日本語で作成する"
+  default_prompt: "Use gh pr create to draft and open a pull request in Japanese, following the repository PR template and repository safety constraints."

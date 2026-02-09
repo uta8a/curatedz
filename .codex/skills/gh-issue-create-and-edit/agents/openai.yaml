@@ -1,0 +1,4 @@
+interface:
+  display_name: "GitHub Issue Create/Edit"
+  short_description: "gh CLIでIssueの作成と編集を行う"
+  default_prompt: "Create or edit GitHub issues in Japanese using gh issue create and gh issue edit with repository safety checks."
