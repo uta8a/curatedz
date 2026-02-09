@@ -1,0 +1,5 @@
+[tools]
+rg = "15.1.0"
+node = "25.6.0"
+"npm:@openai/codex" = "0.98.0"
+gh = "2.85.0"
