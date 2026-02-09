@@ -6,6 +6,6 @@ approval_policy = "never"
 
 [sandbox_workspace_write]
 writable_roots = ["/tmp/"]
-network_access = false
+network_access = true
 exclude_tmpdir_env_var = false
 exclude_slash_tmp = false
