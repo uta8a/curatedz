@@ -1,0 +1,33 @@
+name: Check Rules ExecPolicy
+
+on:
+  pull_request:
+    paths:
+      - '.codex/rules/**'
+      - '.github/scripts/check-rules-execpolicy.sh'
+      - '.github/workflows/check-rules-execpolicy.yaml'
+      - 'mise.toml'
+  push:
+    branches:
+      - main
+    paths:
+      - '.codex/rules/**'
+      - '.github/scripts/check-rules-execpolicy.sh'
+      - '.github/workflows/check-rules-execpolicy.yaml'
+      - 'mise.toml'
+
+permissions:
+  contents: read
+
+jobs:
+  execpolicy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup tools with mise
+        uses: jdx/mise-action@6d1e696aa24c1aa1bcc1adea0212707c71ab78a8 # v3.6.1
+
+      - name: Run execpolicy checks
+        run: ./.github/scripts/check-rules-execpolicy.sh

@@ -1,0 +1,6 @@
+{
+  // Codex CLI の設定ファイルを Python ファイルとしてsyntax highlightする
+  "files.associations": {
+    "*.rules": "python"
+  }
+}

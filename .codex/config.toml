@@ -1,0 +1,11 @@
+# Codex CLI project-local configuration
+# Detailed repository policies are defined in AGENTS.md.
+
+sandbox_mode = "workspace-write"
+approval_policy = "never"
+
+[sandbox_workspace_write]
+writable_roots = ["/tmp/"]
+network_access = true
+exclude_tmpdir_env_var = false
+exclude_slash_tmp = false

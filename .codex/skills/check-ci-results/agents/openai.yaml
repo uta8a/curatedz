@@ -1,0 +1,4 @@
+interface:
+  display_name: "CI Results Checker"
+  short_description: "PRに紐づく最新CIの結果と失敗原因を確認する"
+  default_prompt: "Check the latest workflow run for a PR via gh run list, inspect logs on failure, and summarize root cause with fix suggestions."

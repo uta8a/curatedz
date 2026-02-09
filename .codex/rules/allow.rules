@@ -1,0 +1,149 @@
+# allow rules only
+
+prefix_rule(
+    pattern = ["git", ["status", "diff", "log", "show", "branch", "remote"]],
+    decision = "allow",
+    justification = "Read-only git inspection for commit formatting and PR context",
+    match = [
+        "git status --short",
+        "git diff --cached --stat",
+        "git log --oneline -n 10",
+        "git branch -vv",
+        "git remote get-url origin",
+    ],
+    not_match = [
+        "git rev-parse --is-inside-work-tree",
+        "git config --get remote.origin.url",
+    ],
+)
+
+prefix_rule(
+    pattern = ["rg"],
+    decision = "allow",
+    justification = "Fast local text/file search",
+    match = [
+        "rg --files",
+        "rg -n \"prefix_rule\" .codex/skills",
+    ],
+    not_match = [
+        "git status --short",
+    ],
+)
+
+prefix_rule(
+    pattern = [["cat", "sed", "head", "tail", "ls", "find", "wc"]],
+    decision = "allow",
+    justification = "Local file reading and listing",
+    match = [
+        "sed -n '1,120p' .git/COMMIT_EDITMSG",
+        "cat .github/PULL_REQUEST_TEMPLATE.md",
+        "find .codex/skills -maxdepth 3 -type f",
+    ],
+    not_match = [
+        "echo safe-example",
+    ],
+)
+
+prefix_rule(
+    pattern = ["gh", "auth", "status"],
+    decision = "allow",
+    justification = "Read-only authentication status check",
+    match = [
+        "gh auth status",
+    ],
+    not_match = [
+        "gh auth login --help",
+    ],
+)
+
+prefix_rule(
+    pattern = ["gh", "repo", "view"],
+    decision = "allow",
+    justification = "Read-only repository metadata access",
+    match = [
+        "gh repo view uta8a/curatedz",
+    ],
+    not_match = [
+        "gh repo list uta8a --limit 5",
+    ],
+)
+
+prefix_rule(
+    pattern = ["gh", "pr", ["view", "list", "checks"]],
+    decision = "allow",
+    justification = "Read-only PR inspection for review and CI checks",
+    match = [
+        "gh pr view 12 --json number,title",
+        "gh pr list --state open",
+        "gh pr checks 12 --watch",
+    ],
+    not_match = [
+        "gh pr create --help",
+    ],
+)
+
+prefix_rule(
+    pattern = ["gh", "pr", "create"],
+    decision = "allow",
+    justification = "Allow PR creation in own repository workflow",
+    match = [
+        "gh pr create --help",
+    ],
+    not_match = [
+        "gh pr view 12",
+    ],
+)
+
+prefix_rule(
+    pattern = ["gh", "issue", ["list", "view"]],
+    decision = "allow",
+    justification = "Read-only issue inspection",
+    match = [
+        "gh issue list",
+        "gh issue view 34",
+    ],
+    not_match = [
+        "gh issue create --help",
+    ],
+)
+
+prefix_rule(
+    pattern = ["gh", "run", ["list", "view"]],
+    decision = "allow",
+    justification = "Read-only CI run metadata/log inspection",
+    match = [
+        "gh run list --branch chore/codex-settings --event pull_request",
+        "gh run view 123456789 --log-failed",
+    ],
+    not_match = [
+        "gh run rerun --help",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", ["add", "commit", "tag", "merge", "rebase", "cherry-pick", "pull"]],
+    decision = "allow",
+    justification = "Repository state changes or remote sync",
+    match = [
+        "git add .codex/skills/check-ci-results/SKILL.md",
+        "git commit -m \"chore(codex): refine CI skill\"",
+    ],
+    not_match = [
+        "git push origin chore/codex-settings",
+        "git status",
+        "git diff --stat",
+    ],
+)
+
+prefix_rule(
+    pattern = ["gh", "issue", ["create", "edit"]],
+    decision = "allow",
+    justification = "Creates/edits issues on GitHub",
+    match = [
+        "gh issue create --help",
+        "gh issue edit --help",
+    ],
+    not_match = [
+        "gh issue view 34",
+    ],
+)

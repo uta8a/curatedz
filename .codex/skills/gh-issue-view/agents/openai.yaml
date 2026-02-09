@@ -1,0 +1,4 @@
+interface:
+  display_name: "GitHub Issue Viewer"
+  short_description: "gh CLIでIssue一覧と詳細を確認する"
+  default_prompt: "List GitHub issues and inspect a target issue with gh issue view, then summarize the title and description."

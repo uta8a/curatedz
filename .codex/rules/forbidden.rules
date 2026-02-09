@@ -1,0 +1,99 @@
+# forbidden rules only
+
+prefix_rule(
+    pattern = [["rm", "dd", "mkfs", "shutdown", "reboot", "sudo", "su"]],
+    decision = "forbidden",
+    justification = "Destructive/system-level operations are outside skill scope",
+    match = [
+        "rm --help",
+        "sudo --help",
+        "dd --help",
+    ],
+    not_match = [
+        "git status",
+    ],
+)
+
+prefix_rule(
+    pattern = ["gh", "secret"],
+    decision = "forbidden",
+    justification = "Secret management is not required for these skills",
+    match = [
+        "gh secret list",
+    ],
+    not_match = [
+        "gh issue list",
+    ],
+)
+
+prefix_rule(
+    pattern = ["gh", "pr", "create", "--repo"],
+    decision = "forbidden",
+    justification = "Prevent creating PRs explicitly targeting other repositories",
+    match = [
+        "gh pr create --repo __invalid_owner__/__invalid_repo__ --help",
+    ],
+    not_match = [
+        "gh pr create --help",
+    ],
+)
+
+prefix_rule(
+    pattern = ["gh", "pr", "create", "-R"],
+    decision = "forbidden",
+    justification = "Prevent creating PRs explicitly targeting other repositories",
+    match = [
+        "gh pr create -R __invalid_owner__/__invalid_repo__ --help",
+    ],
+    not_match = [
+        "gh pr create --help",
+    ],
+)
+
+prefix_rule(
+    pattern = ["gh", "issue", "create", "--repo"],
+    decision = "forbidden",
+    justification = "Prevent creating issues explicitly targeting other repositories",
+    match = [
+        "gh issue create --repo __invalid_owner__/__invalid_repo__ --help",
+    ],
+    not_match = [
+        "gh issue create --help",
+    ],
+)
+
+prefix_rule(
+    pattern = ["gh", "issue", "create", "-R"],
+    decision = "forbidden",
+    justification = "Prevent creating issues explicitly targeting other repositories",
+    match = [
+        "gh issue create -R __invalid_owner__/__invalid_repo__ --help",
+    ],
+    not_match = [
+        "gh issue create --help",
+    ],
+)
+
+prefix_rule(
+    pattern = ["gh", "issue", "edit", "--repo"],
+    decision = "forbidden",
+    justification = "Prevent editing issues explicitly targeting other repositories",
+    match = [
+        "gh issue edit --repo __invalid_owner__/__invalid_repo__ --help",
+    ],
+    not_match = [
+        "gh issue edit --help",
+    ],
+)
+
+prefix_rule(
+    pattern = ["gh", "issue", "edit", "-R"],
+    decision = "forbidden",
+    justification = "Prevent editing issues explicitly targeting other repositories",
+    match = [
+        "gh issue edit -R __invalid_owner__/__invalid_repo__ --help",
+    ],
+    not_match = [
+        "gh issue edit --help",
+    ],
+)

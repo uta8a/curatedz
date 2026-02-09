@@ -1,0 +1,4 @@
+interface:
+  display_name: "Git Commit Formatter"
+  short_description: "gitの差分から規約準拠のコミットメッセージを作る"
+  default_prompt: "Inspect git changes, detect the repository commit style, and output one ready-to-use commit message."
