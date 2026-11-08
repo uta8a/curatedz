@@ -18,6 +18,29 @@ Nodeは検証用Codex CLIの導入に使う。Rust・cargo-lambda・CDKのバー
 初回ツール取得にはネットワークが必要だが、導入後のリポジトリ検証は外部API・AWSへアクセスしない。
 Codexの検証はログイン不要の `execpolicy check` のみを使う。
 
+## ツール更新と14日cooldown
+
+安定版のうち、公開から14日以上経過した最新版を選び、正確なバージョンで固定する。
+miseの `minimum_release_age = "14d"` を設定する。
+この設定は `latest` などの解決時に適用され、正確な固定バージョンは再判定されないため、更新時にも公開日時を確認する。
+仕様は [miseの公式設定リファレンス](https://mise.jdx.dev/configuration/settings.html#minimum_release_age) を参照する。
+
+2026-11-09 JSTに確認した固定値（公開日はUTC）:
+
+| ツール | バージョン | 公開日 |
+| --- | --- | --- |
+| Python | 3.15.1 | 2026-10-21 |
+| rg | 15.2.0 | 2026-07-15 |
+| Node | 26.12.1 | 2026-10-21 |
+| Codex CLI | 0.164.0 | 2026-10-23 |
+| gh | 2.103.2 | 2026-10-23 |
+| pinact | 5.0.2 | 2026-10-25 |
+
+候補は `mise latest TOOL --minimum-release-age 14d` で解決する。
+公開日時は `mise ls-remote TOOL --json --no-versions-host --strict-metadata` で取得し、npmパッケージは公式レジストリのtimeも確認する。
+日時が不明な版をcooldown対象外として採用せず、配布元の情報で確認する。
+更新後は `mise install` と `mise run check` を実行し、固定値とこの記録を同じPRで更新する。
+
 ## 個別の検証
 
 | コマンド | 対象 |
