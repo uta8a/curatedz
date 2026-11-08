@@ -12,6 +12,7 @@ Gitと [mise](https://mise.jdx.dev/) が必要です。初回のツール・依�
 ```sh
 mise trust
 mise install
+mise run prepare:rust
 mise exec -- cargo fetch --locked
 mise run demo
 ```

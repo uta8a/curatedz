@@ -2,7 +2,7 @@
 minimum_release_age = "14d"
 
 [tools]
-rust = "1.99.1"
+rust = { version = "1.99.1", profile = "minimal", components = ["rustfmt", "clippy"] }
 "github:cargo-lambda/cargo-lambda" = "1.9.2"
 zig = "0.15.2"
 python = "3.15.1"
@@ -41,3 +41,7 @@ run = "cargo lambda build --release --arm64 --package curatedz-lambda --bin boot
 
 [tasks.demo]
 run = "cargo run --locked -p curatedz-cli -- --config fixtures/topics.yaml --fixtures fixtures --topic software-engineering --run-id demo"
+
+[tasks."prepare:rust"]
+description = "既存ツールチェーンにもformat/lint用コンポーネントを導入"
+run = "rustup component add rustfmt clippy"

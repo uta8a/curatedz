@@ -7,6 +7,7 @@ Gitとmiseをインストールし、リポジトリの設定を確認する。
 ```sh
 mise trust
 mise install
+mise run prepare:rust
 mise exec -- cargo fetch --locked
 mise run demo
 mise run check

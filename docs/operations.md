@@ -27,6 +27,7 @@ config/topics.yamlを編集し、設定検証とテストを通してからLambd
 
 ```sh
 mise install
+mise run prepare:rust
 mise exec -- cargo run -p curatedz-cli -- --validate
 mise run check
 mise run build:lambda
