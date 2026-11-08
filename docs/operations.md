@@ -3,13 +3,15 @@
 ## 現在の検証範囲
 
 ローカルテスト、HTTP/S3モック、CDK synth、Linux ARM64用Lambdaビルドを検証する。
-ユーザーの方針により、AWS認証・デプロイ・実際の定期実行は後で行う。以下はそのための手順であり、実環境で検証済みとはしない。
+AWS認証・専用bootstrap・GitHub OIDC基盤は準備済み。アプリの実デプロイ・定期実行はGitHub Actionsから確認する。
+
+最初に [bootstrap・GitHub Actions手順](aws-bootstrap.md) を参照する。以下の直接デプロイ手順は管理者による障害復旧用で、通常のデプロイはActionsに任せる。
 
 ## 人間が用意するもの
 
 1. 利用するAWSアカウント、リージョン、AWS CLI v2のプロファイル。
 2. コンソールログインまたはSSO等の短期認証。アクセスキーやトークンをチャット・リポジトリへ貼らない。
-3. 対象アカウント・リージョンへのCDK bootstrapとCloudFormationデプロイ権限。権限は管理者と確認する。
+3. 対象アカウント・リージョンへの専用CDK bootstrapとCloudFormationデプロイ権限。権限は管理者と確認する。
 4. 実際に収集するテーマ・フィード、実行時刻、データ保持方針、CloudWatchアラームの通知先。
 
 次の環境変数は自分の値を指定する。
@@ -41,7 +43,11 @@ cd infra
 mise exec -- npm ci --ignore-scripts --no-audit --no-fund
 mise exec -- npm run build
 # ACCOUNT_IDはget-caller-identityで確認した自分のAWSアカウントID
-mise exec -- npm run cdk -- bootstrap aws://ACCOUNT_ID/ap-northeast-1
+mise exec -- npm run cdk -- bootstrap aws://ACCOUNT_ID/ap-northeast-1 \
+  --toolkit-stack-name CuratedzToolkit --qualifier curatedz \
+  --template bootstrap/toolkit.template.json \
+  --cloudformation-execution-policies arn:aws:iam::ACCOUNT_ID:policy/CuratedzCloudFormationExecution \
+  --termination-protection
 mise exec -- npm run cdk -- diff Curatedz
 mise exec -- npm run cdk -- deploy Curatedz
 ```

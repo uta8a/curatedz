@@ -75,4 +75,5 @@ headはDocument索引と全run参照を保持し全件読み書きする。16MiB
 CAS失敗で残った非公開バッチ・Rawの自動GCは行わない。取り込み側はバッチprefixを直接listしない。
 テーマ関連は発見履歴として蓄積し、設定から消したテーマの過去関連も保持する。
 将来の自宅OpenSearchはS3をPullし、headで公開されたgeneration順にDocumentをupsertする。
-AWS実環境でのIAM・定期実行・障害復旧は、AWS設定後の受け入れ確認として残る。
+GitHub OIDC・専用bootstrapとruntime permissions boundaryを準備した。mainへのマージ後に、GitHub Actions経由のアプリ実デプロイ・定期実行・障害復旧を確認する。
+詳細は [bootstrap手順](aws-bootstrap.md) を参照する。

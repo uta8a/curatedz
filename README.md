@@ -49,7 +49,9 @@ CIも同じチェックとLambdaビルドを実行します。
 
 ## AWS運用
 
-AWS設定・実環境検証は未実施です。[AWSセットアップと運用](docs/operations.md) の手順でアカウント・リージョン・認証を用意します。
+[bootstrap・GitHub Actions設定手順](docs/aws-bootstrap.md) を参照してください。アカウントID・認証情報はダミー値で記載しています。
+
+OIDC認証基盤と専用CDK bootstrapは準備済みです。アプリの実デプロイはGitHub Actionsのmainマージ後に確認します。[AWSセットアップと運用](docs/operations.md) の手順でアカウント・リージョン・認証を用意します。
 Schedulerは初期状態で無効です。手動の収集確認後に有効化します。
 S3出力をCLIから使う場合は `cargo run -p curatedz-cli --features aws -- --bucket BUCKET --run-id NAME` を実行します。
 

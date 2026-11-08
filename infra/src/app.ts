@@ -17,6 +17,7 @@ if (!synthOnly) {
   }
 }
 new CollectorStack(app, 'Curatedz', {
+  synthesizer: new cdk.DefaultStackSynthesizer({ qualifier: 'curatedz' }),
   // synthOnlyは構造検証専用。デプロイ時はLinux用bootstrapの実アセットが必須。
   code: synthOnly ? lambda.Code.fromAsset(resolve(__dirname, '../../../fixtures')) : lambda.Code.fromAsset(asset),
   scheduleEnabled: app.node.tryGetContext('scheduleEnabled') === 'true',

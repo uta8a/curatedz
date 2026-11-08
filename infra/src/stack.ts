@@ -16,6 +16,9 @@ export interface CollectorProps extends cdk.StackProps {
 export class CollectorStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: CollectorProps) {
     super(scope, id, props);
+    iam.PermissionsBoundary.of(this).apply(
+      iam.ManagedPolicy.fromManagedPolicyName(this, 'RuntimeBoundary', 'CuratedzRuntimeBoundary'),
+    );
     const bucket = new s3.Bucket(this, 'Archive', {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       encryption: s3.BucketEncryption.S3_MANAGED,

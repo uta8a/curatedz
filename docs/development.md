@@ -70,10 +70,10 @@ Markdownリンクは単純なインラインのローカルファイルリンク
 
 PRとmainへのpushで同じ `mise run check` を実行する。
 ActionsはコミットSHAで固定し、権限はcontents: readに限定する。
-AWS設定は後で行うため、デプロイworkflowやOIDCロールは作らない。
+mainのCI成功後にdeploy.yamlが専用OIDCロールでデプロイする。初回bootstrapは管理用CLIで実行し、AWS認証情報はGitHubへ保存しない。
 
 Rustはfmt・clippy・全featureのテスト、CDKは型検査・構成テスト・synthを必須チェックに含める。
-CIはLinux ARM64のLambda実アセットもビルドする。AWSへのデプロイは行わない。
+CIはLinux ARM64のLambda実アセットもビルドする。AWSへのデプロイはmain限定の別workflowに分離する。
 
 ## エディターと秘密情報
 

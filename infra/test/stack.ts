@@ -11,6 +11,9 @@ test('非公開保存、定期実行、DLQ、最小権限を構成する', () =>
     code: lambda.Code.fromAsset('../fixtures'), scheduleEnabled: false,
   }));
   template.resourceCountIs('AWS::Lambda::Function', 1);
+  template.allResourcesProperties('AWS::IAM::Role', {
+    PermissionsBoundary: Match.anyValue(),
+  });
   template.hasResourceProperties('AWS::Lambda::Function', {
     Runtime: 'provided.al2023', Architectures: ['arm64'], Timeout: 900, ReservedConcurrentExecutions: 1,
     DeadLetterConfig: { TargetArn: Match.anyValue() },

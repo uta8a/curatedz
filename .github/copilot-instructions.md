@@ -9,4 +9,4 @@ v1 は関心テーマを起点とした RSS / Atom の収集・正規化・S3保
 Web Search、通知、LLM、OpenSearch構築は将来対応である。
 
 Rust CLI・共通収集処理・S3アダプター・Lambda・CDKを実装済み。
-AWS設定・実環境検証は後続であり、デプロイ済みと記載しない。
+専用bootstrapとGitHub OIDC基盤は準備済み。アプリ実デプロイはmain限定のActionsから行い、実施前にデプロイ済みと記載しない。
