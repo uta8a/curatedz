@@ -1,6 +1,24 @@
 [tools]
+python = "3.14.0"
 rg = "15.1.0"
+"npm:@openai/codex" = "0.167.0"
+# Codex CLI のインストールに使用。CDK 用の Node は実装時に選定する。
 node = "25.6.0"
-"npm:@openai/codex" = "0.98.0"
 gh = "2.85.0"
 pinact = "3.9.0"
+
+[tasks.check]
+description = "認証情報なしで実行できる開発基盤の検証"
+depends = ["check:config", "check:rules", "check:workflows", "test:tooling"]
+
+[tasks."check:config"]
+run = "python3 .github/scripts/check_repository.py"
+
+[tasks."check:rules"]
+run = "bash .github/scripts/check-rules-execpolicy.sh"
+
+[tasks."check:workflows"]
+run = "bash .github/scripts/check-workflows-pinact.sh"
+
+[tasks."test:tooling"]
+run = "python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v"

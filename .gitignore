@@ -1,0 +1,15 @@
+# ローカル認証情報・環境設定
+.env
+.env.*
+!.env.example
+.aws/
+
+# ビルド・実行出力
+target/
+node_modules/
+cdk.out/
+output/
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
