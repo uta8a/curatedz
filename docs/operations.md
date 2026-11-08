@@ -8,7 +8,7 @@
 ## 人間が用意するもの
 
 1. 利用するAWSアカウント、リージョン、AWS CLI v2のプロファイル。
-2. SSO等の短期認証。アクセスキーやトークンをチャット・リポジトリへ貼らない。
+2. コンソールログインまたはSSO等の短期認証。アクセスキーやトークンをチャット・リポジトリへ貼らない。
 3. 対象アカウント・リージョンへのCDK bootstrapとCloudFormationデプロイ権限。権限は管理者と確認する。
 4. 実際に収集するテーマ・フィード、実行時刻、データ保持方針、CloudWatchアラームの通知先。
 
@@ -17,9 +17,15 @@
 ```sh
 export AWS_PROFILE=YOUR_PROFILE
 export AWS_REGION=ap-northeast-1
-aws sso login --profile "$AWS_PROFILE"
-aws sts get-caller-identity
+# コンソールのIAMユーザー/ロールでログインする場合
+mise exec -- aws login --profile "$AWS_PROFILE"
+# IAM Identity Centerの場合は代わりに初回configureとSSO loginを実行
+# mise exec -- aws configure sso --profile "$AWS_PROFILE"
+# mise exec -- aws sso login --profile "$AWS_PROFILE"
+mise exec -- aws sts get-caller-identity
 ```
+
+[公式ログイン手順](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-sign-in.html) を参照。認証情報・パスワードはブラウザや手元のCLIで入力する。
 
 ## ビルドとデプロイ
 

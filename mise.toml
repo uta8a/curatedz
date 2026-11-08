@@ -2,6 +2,7 @@
 minimum_release_age = "14d"
 
 [tools]
+aws-cli = "2.38.5"
 rust = { version = "1.99.1", profile = "minimal", components = ["rustfmt", "clippy"] }
 "github:cargo-lambda/cargo-lambda" = "1.9.2"
 zig = "0.15.2"
