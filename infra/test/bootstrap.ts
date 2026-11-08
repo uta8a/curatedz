@@ -13,6 +13,9 @@ test('GitHub信頼とCloudFormation権限を専用スコープへ限定する', 
   const execution = access.Resources.ExecutionPolicy.Properties.PolicyDocument.Statement;
   const creation = execution.find((entry: { Action: string[] }) => entry.Action.includes('iam:CreateRole'));
   assert.ok(creation.Condition.StringEquals['iam:PermissionsBoundary']);
+  const listing = execution.find((entry: { Action: string[] }) => entry.Action.includes('logs:DescribeLogGroups'));
+  assert.equal(listing.Resource, '*');
+  assert.deepEqual(listing.Condition.StringEquals['aws:RequestedRegion'], { Ref: 'AWS::Region' });
   assert.deepEqual(toolkit.Resources.CloudFormationExecutionRole.Properties.ManagedPolicyArns, {
     Ref: 'CloudFormationExecutionPolicies',
   });

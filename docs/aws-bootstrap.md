@@ -67,7 +67,7 @@ mise exec -- npm run cdk -- bootstrap aws://123456789012/ap-northeast-1 \
   --termination-protection
 ```
 
-専用CloudFormation実行ポリシーはcuratedz名のリソースに限定する。スタック名や物理名を変更する場合はポリシーも見直す。
+専用CloudFormation実行ポリシーの更新権限はcuratedz名のリソースに限定する。CloudWatch LogsのDescribeLogGroupsはリソース単位の指定に非対応のため、対象リージョンの一覧取得だけを例外として許可する。スタック名や物理名を変更する場合はポリシーも見直す。
 bootstrap基盤そのものの変更は管理用プロファイルで行い、GitHub Actionsに基盤管理権限を追加しない。
 
 ## 3. 確認
@@ -119,3 +119,5 @@ JSON化だけでは権限制限は入らない。生成結果をそのまま専�
 - [CDK bootstrapのカスタマイズ](https://docs.aws.amazon.com/cdk/v2/guide/bootstrapping-customizing.html)
 - [GitHub OIDCとAWS](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws)
 - [AWS CLIログイン](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-sign-in.html)
+
+- [CloudWatch Logsのアクション・リソース制約](https://docs.aws.amazon.com/service-authorization/latest/reference/list_logs.html)
