@@ -1,6 +1,24 @@
 {
-  // Codex CLI の設定ファイルを Python ファイルとしてsyntax highlightする
   "files.associations": {
     "*.rules": "python"
+  },
+  "files.insertFinalNewline": true,
+  "files.trimTrailingWhitespace": true,
+  "editor.tabSize": 2,
+  "[rust]": {
+    "editor.tabSize": 4,
+    "editor.defaultFormatter": "rust-lang.rust-analyzer",
+    "editor.formatOnSave": true
+  },
+  "[python]": {
+    "editor.tabSize": 4
+  },
+  "files.exclude": {
+    "**/__pycache__": true
+  },
+  "search.exclude": {
+    "**/target": true,
+    "**/node_modules": true,
+    "**/cdk.out": true
   }
 }
