@@ -23,7 +23,7 @@ Step Functions、DynamoDB、常時稼働サーバーや高固定費サービス�
 ## 設計と実装
 
 - 実装前にデータ契約と失敗・再実行の扱いを docs に記録する。未確定事項を実装済みと書かない。
-- Rustをアプリの第一候補、TypeScript CDKをIaCの第一候補とする。採用確定時は比較と理由を記録する。
+- アプリはRust、IaCはTypeScript CDKを採用する。比較と理由はdocs/architecture.mdを参照する。
 - 収集・正規化・保存をコード上で分離し、CLIとLambdaでドメインロジックを共有する。
 - モデル・正規化・ID生成はAWSやネットワークなしでテストできるようにする。
 - AWS SDKやHTTPの呼び出しは小さなアダプターへ閉じ込める。
@@ -54,8 +54,8 @@ Step Functions、DynamoDB、常時稼働サーバーや高固定費サービス�
 
 ## 検証と変更報告
 
-現在の開発基盤は `mise run check` で検証する。[開発手順](docs/development.md) を参照。
-アプリ追加時にformat・lint・test、CDK追加時に型検査・synthをCIへ追加する。
+全体は `mise run check` と `mise run build:lambda` で検証する。[開発手順](docs/development.md) を参照。
+CIはformat・clippy・全featureのRustテスト、CDK型検査・構成テスト・synth、Lambdaビルドを実行する。
 RSS 2.0 / Atom、日付欠落、非UTF-8、特殊エンティティ、日またぎ重複、複数テーマ、記事更新、中断復旧、部分失敗をテストする。
 外部API・AWSの実アクセスを単体テストの必須条件にしない。
 変更報告には変更内容、実行した検証、未実施の検証と既知の制約を記載する。

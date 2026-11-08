@@ -1,73 +1,79 @@
-# データモデル・保存契約の設計案
+# v1 データ契約
 
-## 状態
+## 設定と実装
 
-この文書は方針案であり、スキーマ・キー・競合解決方式の確定仕様ではない。
-実装時にJSONの具体例、型、ID計算のテストベクトルと共に確定する。旧itemsスキーマとの互換性は前提としない。
+Rustの共通ライブラリをCLIとLambdaで共有し、IaCはTypeScript CDKとする。
+RSS解析はfeed-rsを使用し、XML宣言の非UTF-8にも対応する。
+テーマ・情報源はYAMLで別IDを持ち、未知フィールド、参照切れ、重複、安全でないIDを拒否する。
+YAMLの設定内容を正規化JSONにしたSHA-256をconfig_versionとする。
 
-## レコードの責務
+## レコード
 
-| 種類 | 主な情報 | 同一性 |
-| --- | --- | --- |
-| Document | schema_version、document_id、canonical_url、title、published_at、updated_at、authors、summary、content_hash | 正規化URLを基本とする。URLがなければ情報源IDとソース固有ID |
-| Discovery | discovery_id、document_id、source_id、source_item_id、observed_at、run_id、raw参照 | 収集実行内の情報源・エントリ単位。同一実行の再試行は同一ID、新しい収集は別の発見 |
-| Topic association | document_id、topic_id、根拠となるdiscovery_id、設定バージョン | 記事とテーマの関連およびその根拠。Documentの重複判定から独立する |
-| Run manifest | run_id、種別、設定・処理バージョン、出力キー一覧、件数、情報源ごとの結果 | バッチの公開境界。成功、部分成功、全件失敗を区別する |
+- Document: schema_version、document_id、canonical_url、title、published_at、updated_at、authors、summary、content_hash。
+- Discovery: discovery_id、document_id、source_id、source_item_id、observed_at、run_id、raw_key。
+- Association: document_id、topic_id、discovery_id、config_version。削除せず履歴として蓄積する。
+- Manifest: 実行ID、設定・正規化版、収集/replay、元実行ID、情報源ごとの結果、件数、JSONLキー。
 
-Documentには情報源固有フィールドを必須にしない。出典はDiscoveryからたどる。
-公開日不明はnullとして保持する。Webページ本文はv1では取得しない。
-フィードのsummaryに含まれるHTMLは非信頼入力として扱い、将来の表示処理で安全性を確保する。
+Document IDは `sha256:` + SHA256(JSON配列)で、入力はURLありなら `["url", canonical_url]`、なければ `["source", source_id, entry_id]`。
+タイトル・公開日時・テーマ・収集日はIDに含めない。内容ハッシュはcontent_hashを空文字にしたDocumentのJSONから計算する。
+URLはhttp/httpsだけを許可し、認証情報を拒否する。fragmentを除去し、URLライブラリでhostと既定portを正規化する。クエリを保持し、http/httpsを同一視しない。
+公開日時不明はnull。URLもエントリIDもない入力は正規化失敗として記録する。
+Discovery IDは `["discovery", run_id, source_id, entry_id, document_id]` のSHA-256。
+同一runの再試行は同じ発見、新しいrunは別の発見。重複した同一エントリは実行内で統合する。
 
-## IDと更新
-
-Document IDは `sha256:` 接頭辞を持つ決定的なハッシュとする方向。
-URLとソースIDフォールバックを識別できる入力形式を使い、区切りやエンコーディングも仕様化する。
-タイトル・公開日時・取得日・テーマはIDに含めず、内容更新はcontent_hashで区別する。
-同じURLのRSS記事と、将来の検索結果は同じDocumentを参照できるようにする。
-URLが変わる同一記事や別URLの転載を自動的に同一視することは保証しない。
-
-URL正規化はscheme/hostの扱い、fragment、既定portなどを規則化し、クエリの一律除去やhttp/httpsの無条件統合は避ける。
-ソース固有IDすらない場合の扱いと、内容が異なる同一URLのマージ規則は実装前に決める。
-
-## S3の論理レイアウト案
-
-日付は収集時刻のUTC日付、run_idは再試行で変わらない実行識別子とする方向。
-情報源IDは設定で定義した安全なIDを使い、URLを直接キーに埋め込まない。
+## 保存レイアウト
 
 ```text
-raw/v1/source=<source_id>/date=<YYYY-MM-DD>/run=<run_id>/response.bin
-raw/v1/source=<source_id>/date=<YYYY-MM-DD>/run=<run_id>/metadata.json
-normalized/v1/date=<YYYY-MM-DD>/run=<run_id>/documents.jsonl
-discovery/v1/date=<YYYY-MM-DD>/run=<run_id>/discoveries.jsonl
-associations/v1/date=<YYYY-MM-DD>/run=<run_id>/associations.jsonl
-runs/v1/date=<YYYY-MM-DD>/run=<run_id>/manifest.json
+raw/v1/run=<run_id>/source=<source_id>/body=<hash>.bin
+raw/v1/run=<run_id>/source=<source_id>/capture.json
+batches/v1/<transaction_hash>/documents.jsonl
+batches/v1/<transaction_hash>/discoveries.jsonl
+batches/v1/<transaction_hash>/associations.jsonl
+batches/v1/<transaction_hash>/manifest.json
+state/v1/head.json
 ```
 
-Rawはレスポンスの元バイト列を保存し、Content-Type、文字コードなど必要な情報はmetadataに残す。
-認証ヘッダー、Cookieなど秘密情報をレスポンスメタデータに無差別保存しない。
-JSONLは実行単位でまとめる。データ量に応じた分割上限・圧縮形式は実装前に確定する。
-manifestには実際に書いたオブジェクトを列挙し、再処理IDと元Rawの参照を記録する。
+captureは元バイト列への参照、取得時刻、情報源URL、設定版、エラーを記録する。収集失敗もそのrunの結果として固定する。
+同じrun_idを違う設定・テーマ選択・replay元で使うことは拒否する。
+Rawやバッチは条件付き新規作成し、不変とする。同じキーへの異なる内容は保存エラー。
+取得済みcaptureがあれば再取得せず、replayは元runのcapture/bodyだけを読む。
+解析失敗のRawも残す。部分成功runの失敗情報源を取得し直すには新しいrun_idで収集する。
 
-## 重複排除・コミット
+## 公開・索引・競合
 
-日付を含むキーは整理用であり、グローバルな重複判定用ではない。
-HeadObjectだけでは日またぎ重複やチェック後の競合を防げない。
+headはgeneration、Document IDごとの内容ハッシュ・観測時刻・正規化版・情報源ID、run_idごとのmanifest参照と実行契約を持つ。
+S3はGetObjectのETagを使い、初回はIf-None-Match、更新はIf-MatchでheadをCAS更新する。
+ローカルではOSのファイルロック中に比較し、一時ファイルのrenameで置換する。プロセス終了でロックは解放される。
 
-初期案はS3上のDocument ID・内容ハッシュ索引とバッチmanifestを使用する方式。
-変更のないDocumentは再出力せず、新しい発見・テーマ関連は保存する。
-本文を持たないため、タイトルやsummaryが変わる場合の更新規則も必要になる。
+1. Rawを不変保存する。
+2. headを読み、変更Document・Discovery・Associationを計画する。
+3. 計画内容のハッシュをtransaction_hashとし、JSONLとmanifestを不変保存する。
+4. headのCAS成功で初めてバッチを公開する。索引とrun参照は同じオブジェクト内なので一括更新される。
+5. CAS競合時はheadを再読込して計画し直す。有限回で打ち切り、呼び出し側に再試行させる。
 
-索引を先に更新して出力が失われるケースと、出力後の再試行で重複するケースの両方を扱う。
-単一writerと条件付き書き込みなどを比較し、索引・バッチ・manifestの公開順序を決める。
-S3には複数オブジェクトを一括でコミットするトランザクションがないため、整合性を仮定だけで済ませない。
-索引の全件読み込みは蓄積量に応じて高くなるため、想定データ量と再構築手順も記録する。
+取り込み側はheadのrunsにあるmanifestだけを読む。バッチprefixをlistして未公開manifestを取り込まない。
+generationはコミット順。manifestのgenerationで順に取り込み、Document IDでupsertする。
+CAS直後にプロセスが停止しても、同じrunはheadから完了結果を返す。
+書きかけのバッチは非公開のまま残る。自動削除はせず、headから参照されていないことを確認して管理者が削除する。
 
-## 再処理と取り込み
+同じ内容のDocumentは再出力しないが、新しいDiscoveryとAssociationは残す。
+更新候補は `(observed_at, normalizer_revision, source_id, content_hash)` の順で比較し、過去Rawのreplayで新しい内容を巻き戻さない。
+テーマ関連は履歴であり、設定からテーマを消しても過去の関連は削除しない。
 
-- 収集済みRawの参照、取得時刻、設定バージョン、正規化バージョンを保持する。
-- 同じRawの再処理は新しいネットワークアクセスを行わない。
-- 新規収集、同一実行の再試行、正規化バージョン変更による再処理を区別する。
-- 将来の取り込み側は完了manifestに列挙されたデータを読み、Document IDでupsertする。
-- 更新順序、取り込みカーソル、テーマ関連の削除は確定仕様に含める。
+## 初期上限・制約
 
-検証には日付をまたぐ同一記事、複数テーマ・情報源、内容更新、部分書き込み、manifest保存失敗を含める。
+情報源20件、テーマ100件、各応答2MiB以下、各フィード1000エントリ以下、HTTPタイムアウト10秒以下・試行2回以下。
+取得は逐次実行し、情報源を共有するテーマでも取得は一回。明示的にスループットを制限して負荷と実行時間を抑える。
+JSONLとheadはそれぞれ16MiBまで。headはDocument索引とrun履歴を全件読み書きするため、長期運用前に計測・分割やコンパクションを検討する。
+上限超過は公開せずエラーにする。Rawは残るので設定・実装の調整後に再処理できる。
+同じURLの転載検出、変更されたURLの追跡、本文取得、テーマ関連の削除は対象外。
+
+## 公式仕様
+
+- [S3条件付き書き込み](https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes.html)
+- [feed-rsパーサー](https://docs.rs/feed-rs/latest/feed_rs/parser/struct.Parser.html)
+- [Schedulerのコンテキスト属性](https://docs.aws.amazon.com/scheduler/latest/UserGuide/managing-schedule-context-attributes.html)
+
+Schedulerのexecution-idは試行ごとに異なるためrun_idに使わず、schedule-arnとscheduled-timeのハッシュを使う。
+
+正規化規則を変更した場合はNORMALIZER_VERSIONを増やす。同じ取得時刻でも新しい正規化版を優先し、過去Rawから新しい取得時刻のDocumentは上書きしない。

@@ -1,50 +1,76 @@
 # curatedz
 
-関心テーマに関連する情報を継続的に収集し、長期的に検索・分析・再処理できるようにする個人向けの情報基盤です。
+関心テーマを起点にRSS / Atomを収集し、取得時点のRawと正規化データを長期活用するための個人向け基盤です。
+Rustの共通処理をローカルCLIとLambdaで使用し、AWSではEventBridge Scheduler → 単一Lambda → S3で実行します。
 
-v1 は **RSS / Atom の収集と保存** に絞ります。テーマと情報源をGit管理し、取得時点のRawと共通スキーマのデータをS3へ保存します。
-Web Search、LLM、通知、自宅OpenSearchとの接続は将来対応です。
+v1はRSS / Atomに限定します。Web Search、本文抽出、LLM、通知、OpenSearch構築は対象外です。
 
-## 現在の状態
+## ローカルで試す（AWS認証情報・ネット接続不要）
 
-開発指針・エディター設定・CI・設計方針を刷新した段階です。
-収集アプリ、ローカルCLI、CDKスタックはまだありません。AWSリソースの作成や自動デプロイも行いません。
-
-## 開発基盤の検証
-
-前提: Git、[mise](https://mise.jdx.dev/) がインストール済みであること。
-リポジトリの設定を確認してから、以下を実行します。
+Gitと [mise](https://mise.jdx.dev/) が必要です。初回のツール・依存取得にはネット接続を使います。
 
 ```sh
 mise trust
 mise install
-mise run check
+mise exec -- cargo fetch --locked
+mise run demo
 ```
 
-APIキーやAWS認証情報は不要です。ツールの初回インストールにはネットワーク接続が必要です。
-検証対象はJSON/TOML、ローカルのMarkdownリンク、差分の空白、Codexルール、GitHub ActionsのSHA固定、検証ツールの回帰テストです。
-アプリのformat・lint・testとCDK synthは、それぞれの実装時に追加します。
+fixtureを読み、output/へRaw・Document・Discovery・テーマ関連・manifest・索引を保存します。
+再度 `mise run demo` を実行しても同じrunは再取得・再公開しません。
 
-## v1 の目標
+```sh
+# 永続化せずfixtureで確認
+mise exec -- cargo run -p curatedz-cli -- --fixtures fixtures --dry-run
+# 設定とテーマ参照を検証
+mise exec -- cargo run -p curatedz-cli -- --validate
+# 実際のフィードを取得してテーマ指定でローカル保存
+mise exec -- cargo run -p curatedz-cli -- --topic software-engineering --run-id first-live
+# 保存したRawだけを使って再処理（HTTPアクセスなし）
+mise exec -- cargo run -p curatedz-cli -- --replay first-live --run-id first-replay
+```
 
-- YAMLでテーマ・RSS情報源を定義し、多対多の関連を表現する。
-- テーマを指定してローカルで収集し、ローカルファイルまたはS3へ出力する。
-- Document、Discovery、テーマ関連を分け、同じ記事の重複と新しい発見を区別する。
-- Rawを残し、外部APIへ再アクセスせずに正規化を再実行する。
-- 情報源ごとの部分失敗、記事更新、再実行に対応する。
-- EventBridge Scheduler → 単一Lambdaで定期実行する。
+設定は [config/topics.yaml](config/topics.yaml)。情報源とテーマは多対多で、共有フィードは一回だけ取得します。
+新しい取得には新しいrun_idを指定します。同じrun_idを違う設定・テーマ選択に使うとエラーです。
+CLI終了コードは成功0、部分成功2、全件失敗・保存/設定エラー1です。
+dry-runは保存を抑止しますが、`--fixtures`なしではHTTPアクセスします。replayとdry-runの同時指定はできません。
+
+## 検証
+
+```sh
+mise run check
+mise run build:lambda
+```
+
+format・clippy・Rustテスト（S3/HTTPモック・CLIを含む）、設定・ルール検証、CDK型検査・構成テスト・synthを実行します。
+build:lambdaはLinux ARM64用bootstrapを生成します。単体テストとsynthはAWS認証情報を要求しません。
+CIも同じチェックとLambdaビルドを実行します。
+
+## AWS運用
+
+AWS設定・実環境検証は未実施です。[AWSセットアップと運用](docs/operations.md) の手順でアカウント・リージョン・認証を用意します。
+Schedulerは初期状態で無効です。手動の収集確認後に有効化します。
+S3出力をCLIから使う場合は `cargo run -p curatedz-cli --features aws -- --bucket BUCKET --run-id NAME` を実行します。
+
+## 保存・制約
+
+Document（実体）、Discovery（発見履歴）、Association（テーマ関連）を分離します。
+記事のIDは正規化URLを基本とし、タイトル・公開日時・テーマの変更で別記事にしません。
+JSONLをバッチ保存後、単一headを条件付き更新して公開するため、日またぎ重複・同時実行・中断再開に対応します。
+取り込み側はheadから参照されるmanifestだけを読みます。
+
+初期版は情報源20件、フィード1000エントリ、応答2MiB、各保存オブジェクト16MiBまでです。
+索引・実行履歴は全件読み書きするため、長期運用ではサイズと費用の計測・コンパクションが必要です。
 
 ## ドキュメント
 
-- [設計方針と未解決事項](docs/architecture.md)
-- [データモデル・保存契約の設計案](docs/data-model.md)
-- [開発手順とCI](docs/development.md)
-- [運用設計](docs/operations.md)
-- [v1実装計画](docs/plan/v1.md)
-- [開発者・エージェント向け指針](AGENTS.md)
-- [Codex設定の責務](.codex/README.md)
-
-旧RSS → GitHub Discussion構想と旧MVP計画は置き換えました。以前の内容はGit履歴で参照できます。
+- [アーキテクチャ](docs/architecture.md)
+- [データ契約と整合性](docs/data-model.md)
+- [開発手順](docs/development.md)
+- [AWSセットアップ・運用](docs/operations.md)
+- [v1実装状況](docs/plan/v1.md)
+- [開発指針](AGENTS.md)
+- [Codex設定](.codex/README.md)
 
 ## ライセンス
 

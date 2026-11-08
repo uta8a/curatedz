@@ -20,5 +20,10 @@
     "**/target": true,
     "**/node_modules": true,
     "**/cdk.out": true
+  },
+  "yaml.schemas": {
+    "./config/schema.json": [
+      "config/topics.yaml"
+    ]
   }
 }

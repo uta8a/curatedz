@@ -13,3 +13,6 @@ output/
 __pycache__/
 *.pyc
 .DS_Store
+
+# CDKビルド結果
+infra/dist/

@@ -1,22 +1,25 @@
 # 開発手順
 
-## 現在利用できるもの
+## 開発環境
 
-開発設定とリポジトリ検証のみ。Rustアプリ、収集CLI、CDKは未実装。
-以下の手順はAWSや外部APIの認証情報を必要としない。
-
-前提はGitと [mise](https://mise.jdx.dev/) が利用できること。
+Gitとmiseをインストールし、リポジトリの設定を確認する。
 
 ```sh
 mise trust
 mise install
+mise exec -- cargo fetch --locked
+mise run demo
 mise run check
+mise run build:lambda
 ```
 
-固定ツールはmise.tomlを参照する。検証スクリプトはPython 3.11以上の標準ライブラリで動作する。
-Nodeは検証用Codex CLIの導入に使う。Rust・cargo-lambda・CDKのバージョンはアプリ実装時に選定する。
-初回ツール取得にはネットワークが必要だが、導入後のリポジトリ検証は外部API・AWSへアクセスしない。
-Codexの検証はログイン不要の `execpolicy check` のみを使う。
+初回ツール・依存取得はネット接続が必要。テストは外部API・AWS認証情報なしで実行する。
+テスト内のHTTP/S3サーバーはlocalhostへ接続するため、ローカルネットワーク接続を許可する。
+全体テストのワークスペースはS3 SDKもビルドする。手早いローカル開発は `cargo test -p curatedz-core -p curatedz-cli`。
+
+アプリはRust 1.99.1、cargo-lambda 1.9.2、Zig 0.15.2でLambdaへクロスビルドする。
+Zigはcargo-lambdaとの互換を確認した0.15系列に固定する。
+CDKはinfra/package.json、RustはCargo.tomlとそれぞれのロックファイルでバージョンを固定する。
 
 ## ツール更新と14日cooldown
 
@@ -29,6 +32,9 @@ miseの `minimum_release_age = "14d"` を設定する。
 
 | ツール | バージョン | 公開日 |
 | --- | --- | --- |
+| Rust | 1.99.1 | 2026-10-15 |
+| cargo-lambda | 1.9.2 | 2026-08-21 |
+| Zig（互換系列） | 0.15.2 | 2025-10-11 |
 | Python | 3.15.1 | 2026-10-21 |
 | rg | 15.2.0 | 2026-07-15 |
 | Node | 26.12.1 | 2026-10-21 |
@@ -49,6 +55,10 @@ miseの `minimum_release_age = "14d"` を設定する。
 | `mise run check:rules` | Codexルールの読み込みとmatch / not_match例、最終判定 |
 | `mise run check:workflows` | GitHub ActionsのSHA固定 |
 | `mise run test:tooling` | 検証ツールのシェル解釈・CLIエラー等の回帰テスト |
+| `mise run check:rust` | format、clippy、全featureのRustテスト |
+| `mise run check:infra` | npm ci、TypeScript strict、CDK構成テスト、認証不要のsynth |
+| `mise run build:lambda` | Linux ARM64用bootstrapビルド |
+| `mise run demo` | fixtureからローカル出力 |
 
 設定検証はJSON/TOMLのアプリ固有スキーマ検証ではない。
 Markdownリンクは単純なインラインのローカルファイルリンクを対象とし、外部URLやアンカーの存在は検証しない。
@@ -58,10 +68,10 @@ Markdownリンクは単純なインラインのローカルファイルリンク
 
 PRとmainへのpushで同じ `mise run check` を実行する。
 ActionsはコミットSHAで固定し、権限はcontents: readに限定する。
-現段階ではデプロイworkflowやOIDCロールを作らない。
+AWS設定は後で行うため、デプロイworkflowやOIDCロールは作らない。
 
-Rust追加時はformat・clippy・単体テスト、CDK追加時は依存ロック・型検査・synthを必須チェックへ追加する。
-未実装のアプリ検証をスキップして成功したように見せるジョブは作らない。
+Rustはfmt・clippy・全featureのテスト、CDKは型検査・構成テスト・synthを必須チェックに含める。
+CIはLinux ARM64のLambda実アセットもビルドする。AWSへのデプロイは行わない。
 
 ## エディターと秘密情報
 
@@ -72,9 +82,16 @@ Codex設定の責務は [.codex/README.md](../.codex/README.md) を参照する�
 .envや出力先output/はGit管理対象外。認証情報やRawの実データをfixtureとして無断で追加しない。
 PRは日本語で、変更理由、検証結果、未実施事項、後続作業を記載する。
 
-## アプリ実装時のローカル動作
+## CLIと検証データ
 
-CLIはテーマ指定、ローカル出力、dry-run、Rawのreplayを提供する予定。
-dry-runは永続化を抑止するが、HTTPアクセスまで抑止するとは限らない。
-完全にオフラインで検証するfixture経路を別途用意する。
-実際のコマンド名とオプションは実装後にREADMEへ記載する。
+実行例は [README](../README.md) を参照。
+fixtures/topics.yamlとfixture RSSは外部アクセスなしのテスト用。config/topics.yamlは実運用向けの設定例。
+`--fixtures fixtures` は各情報源IDの `<id>.xml` を読む。URLは正規化のbase URIとして利用する。
+CLIはstdoutにmanifest、stderrに構造化ログを出す。成功0、部分成功2、全件失敗1。
+単体テストは一時ディレクトリまたはMemoryStoreを使用し、実行後にGit管理データを残さない。
+
+## 再現性
+
+Cargoは `--locked`、npmは `npm ci --ignore-scripts` をCIで使う。
+依存更新時はロックファイルを更新し、Rust・CDK・Lambdaビルドまで再確認する。
+config/schema.jsonはエディター向けで、ID重複やテーマの参照整合性などの正確な検証はRustのConfig::validateが行う。
