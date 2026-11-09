@@ -31,7 +31,7 @@ Step Functions、DynamoDB、VPC・NATや常時稼働コンポーネントは使�
 | RSS | feed-rs 3。RSS/Atom・XML宣言の非UTF-8をfixtureで検証。ライブラリのID自動補完を無効化し、同一性をアプリ側で決める |
 | 設定 | YAML。説明文と配列をTOMLより簡潔に記述できる。serdeで型・未知フィールドを検証し、ID・参照・URLを追加検証する |
 | 保存 | Rawはバイト列、正規化はJSONL。単一headのCASを公開境界とし、別のメタデータDBを避ける |
-| Lambda | provided.al2023 / ARM64、1024MiB、15分、予約同時実行1。競合防止は予約同時実行だけに依存せずS3 CASも使う |
+| Lambda | provided.al2023 / ARM64、1024MiB、15分。アカウントの共有同時実行枠を使い、競合はS3 CASで処理する |
 
 直接依存は14日経過した安定版を選定し、Cargo.lockとpackage-lock.jsonで解決結果を固定する。
 Rustの推移依存はロックファイルで固定し、全推移依存の公開年齢を保証する仕組みは含めない。

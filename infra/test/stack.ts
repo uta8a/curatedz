@@ -15,7 +15,8 @@ test('非公開保存、定期実行、DLQ、最小権限を構成する', () =>
     PermissionsBoundary: Match.anyValue(),
   });
   template.hasResourceProperties('AWS::Lambda::Function', {
-    Runtime: 'provided.al2023', Architectures: ['arm64'], Timeout: 900, ReservedConcurrentExecutions: 1,
+    Runtime: 'provided.al2023', Architectures: ['arm64'], Timeout: 900,
+    ReservedConcurrentExecutions: Match.absent(),
     DeadLetterConfig: { TargetArn: Match.anyValue() },
   });
   template.hasResource('AWS::S3::Bucket', { DeletionPolicy: 'Retain' });
