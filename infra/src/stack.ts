@@ -37,7 +37,6 @@ export class CollectorStack extends cdk.Stack {
       code: props.code,
       memorySize: 1024,
       timeout: cdk.Duration.minutes(15),
-      reservedConcurrentExecutions: 1,
       logGroup,
       environment: { CURATEDZ_BUCKET: bucket.bucketName },
     });
