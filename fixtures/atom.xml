@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom"><title>Atom</title><id>urn:feed:example</id><updated>2026-11-02T00:00:00Z</updated>
+<entry><id>urn:entry:1</id><title>Atom entry</title><link href="/atom-post"/><published>2026-11-01T01:02:03Z</published><updated>2026-11-02T01:02:03Z</updated><author><name>Alice</name></author><summary>Atom summary</summary></entry>
+<entry><id>urn:entry:2</id><title>ID only</title><updated>2026-11-02T01:02:03Z</updated></entry>
+</feed>

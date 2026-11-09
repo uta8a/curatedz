@@ -1,123 +1,79 @@
-# アーキテクチャ方針
+# アーキテクチャ
 
-## 状態と目的
-
-この文書はv1の設計方針を示す。アプリ・AWSリソースは未実装であり、データ契約の詳細は実装前に確定する。
-curatedzは、関心テーマを起点として情報を収集し、後から検索・分析・行動に活用するための保存基盤である。
-
-Topic-driven、Source-agnostic、Storage-first、Replayable、Idempotent、Composable、Cost-conscious、Observableを原則とする。
-検索プロバイダーや通知処理を先に用意せず、v1の実処理に必要な境界だけを設ける。
-
-## v1 の責務
-
-- テーマと情報源を設定し、RSS / Atomから情報を取得する。
-- 取得時点のRawと、正規化したDocument・発見履歴・テーマ関連を保存する。
-- ローカルCLIとLambdaが同じ収集処理を使用する。
-- 保存済みRawの再処理と、実行をまたぐ重複・内容更新に対応する。
-
-Web Search、外部API追加、ページ本文抽出、LLM、通知、フィードバックフォーム、OpenSearchの構築・インデックス作成は対象外。
-
-## 全体構成
+## 構成
 
 ```mermaid
 flowchart TD
-    Config[Git管理のテーマ・情報源設定] --> Core[収集ユースケース]
-    CLI[ローカルCLI] --> Core
-    Scheduler[EventBridge Scheduler] --> Lambda[単一Lambda]
+    Config[Git管理のYAML設定] --> Core[Rust共通処理]
+    CLI[CLI] --> Core
+    Scheduler[EventBridge Scheduler] --> Lambda[単一Lambda ARM64]
     Lambda --> Core
-    RSS[RSS / Atom] --> Fetch[HTTP取得]
-    Core --> Fetch
+    Core --> Fetch[逐次HTTP取得 / fixture]
     Fetch --> Raw[Raw保存]
-    Raw --> Normalize[正規化]
-    Normalize --> Store[Document・Discovery・テーマ関連]
-    Store --> Local[ローカル出力]
-    Store --> S3[S3]
-    Raw --> Replay[保存済みRawの再処理]
+    Raw --> Normalize[RSS / Atom正規化]
+    Normalize --> Batch[Document・Discovery・Association JSONL]
+    Batch --> Commit[headの条件付き更新で公開]
+    Commit --> Storage[S3 / ローカルファイル]
+    Raw --> Replay[ネットワーク不要のreplay]
     Replay --> Normalize
 ```
 
-AWSではRawもS3へ保存する。CLIは同じ論理レイアウトをローカルに出力できるようにする。
-Schedulerは起動だけを担い、単一Lambda内で情報源ごとの取得・正規化・保存を実行する。
-処理の分離はモジュール境界で行い、現時点ではStep Functionsや情報源別Lambdaへ分割しない。
-Lambdaの実行時間・メモリの上限に収まるよう、情報源数、レスポンスサイズ、並列数、リトライを制限する。
+RSS収集、正規化、保存をモジュールとして分け、CLIとLambdaで同じexecuteを使う。
+Web Search、外部API追加、本文抽出、LLM、通知、OpenSearch構築はv1対象外。
+Step Functions、DynamoDB、VPC・NATや常時稼働コンポーネントは使用しない。
 
 ## 技術選定
 
-| 対象 | 比較と方針 |
+| 対象 | 採用と比較 |
 | --- | --- |
-| アプリ | Rustは型とID・正規化の契約を強く表現でき、CLIとLambdaで共有できる。Pythonは試作が容易、TypeScriptはIaCとの言語統一が利点。既存方針も踏まえてRustを第一候補とし、実装時にRSS解析・エンコーディング対応を確認して確定する |
-| IaC | CDK TypeScriptはAWSリソースを型付きコードで表現できる。Terraformは別のツール体系、手書きCloudFormationは記述量が増えるため、CDKを第一候補とする |
-| 設定 | YAMLは複数行の説明とテーマ・情報源の配列を読み書きしやすい。TOMLは型の曖昧さが少ないが入れ子の配列が冗長になる。YAMLを選び、型検証と未知フィールドの拒否で曖昧さを抑える |
-| 保存 | Rawはバイト列を保持する。正規化データはJSONLをバッチ保存する。Documentごとの小さなJSONを大量に作る方式は避ける |
-| 実行基盤 | Scheduler → Lambda → S3。複雑なメタデータDBや常時稼働コンポーネントは導入しない |
+| アプリ | Rust 1.99.1。型・Result・決定的なIDとAWS SDKを利用し、CLIとLambdaのドメインロジックを共有する。Pythonよりビルド負荷は高いが、型と単一バイナリを重視した。TypeScriptとの比較ではIaCとの言語統一よりRustの既存方針を優先した |
+| IaC | TypeScript strict + CDK v2。手書きCloudFormationより構成・権限の型検査とassertionsが容易。Terraformの別ツール体系は増やさない |
+| RSS | feed-rs 3。RSS/Atom・XML宣言の非UTF-8をfixtureで検証。ライブラリのID自動補完を無効化し、同一性をアプリ側で決める |
+| 設定 | YAML。説明文と配列をTOMLより簡潔に記述できる。serdeで型・未知フィールドを検証し、ID・参照・URLを追加検証する |
+| 保存 | Rawはバイト列、正規化はJSONL。単一headのCASを公開境界とし、別のメタデータDBを避ける |
+| Lambda | provided.al2023 / ARM64、1024MiB、15分、予約同時実行1。競合防止は予約同時実行だけに依存せずS3 CASも使う |
 
-具体的なライブラリ、ランタイム、CDKのバージョンとロックファイルは実装時に追加する。
-現在のmiseにあるNode・Codex等は開発ツール用の固定値であり、アプリのランタイム選定ではない。
-
-## 設定
-
-設定はGit上のYAMLを正とし、検証済み設定をデプロイ成果物に含める。
-テーマと情報源を別のIDで定義し、テーマから情報源IDを参照する。共有情報源は一実行で一度取得する。
-YAMLの構文だけでなく、型・ID重複・参照整合性・未知フィールドを検証する。
-SSM経由の設定取得は必須としない。秘密情報が必要になった場合はAWSではSecrets Manager、ローカルでは環境変数などから注入する。
+直接依存は14日経過した安定版を選定し、Cargo.lockとpackage-lock.jsonで解決結果を固定する。
+Rustの推移依存はロックファイルで固定し、全推移依存の公開年齢を保証する仕組みは含めない。
+Node 26は開発・CDK用で、LambdaはNodeランタイムを使用しない。
 
 ## ディレクトリ
 
-現在存在する開発基盤:
-
 ```text
-AGENTS.md                   開発指針
-.codex/                     Codex設定・ルール・開発支援skill
-.github/                    CI・PRテンプレート・検証スクリプト
-.vscode/                    編集設定・推奨拡張
-README.md                   状態・入口
-mise.toml                   開発ツール・検証コマンド
-docs/                       設計・開発・運用・実装計画
+config/                    YAML設定とエディター用JSON Schema
+crates/core/               設定・モデル・正規化・収集・保存ユースケース
+crates/cli/                ローカルCLI
+crates/collector-lambda/   Lambdaエントリーポイント
+infra/                     CDK、型検査、構成テスト
+fixtures/                  RSS / Atom / 非UTF-8 / 壊れた入力
+.github/                   CIと開発基盤の検証
 ```
 
-実装時に追加する候補:
+設定はGitを正としてLambdaバイナリへ埋め込む。変更時は再ビルド・再デプロイする。
+SSMは使わず、認証が不要なRSS取得にSecrets Manager権限を追加しない。
+情報源URLは設定由来の信頼済み入力だが、認証情報付きURLを拒否し、ログはsource_idを使う。
 
-```text
-config/                     テーマ・情報源設定と例
-crates/core/                モデル・ID・正規化・ユースケース
-crates/cli/                 ローカル実行
-crates/collector-lambda/    Lambdaエントリーポイント
-infra/                      CDKアプリと必要なconstruct
-fixtures/                   RSS / Atom等のテストデータ
-```
+## データと失敗
 
-空ディレクトリや未実装コマンドは、この段階では追加しない。
+[データ契約](data-model.md) にID・レイアウト・公開順序・競合時の再計画を記載する。
+Raw取得結果を先に固定し、解析失敗も保存済み入力から追跡できるようにする。
+HTTPは10秒まで・最大2試行・逐次取得、サイズと件数も制限する。
+フィード失敗は部分成功として記録し、保存失敗は呼び出し全体をエラーにする。
+Lambdaは全情報源失敗でエラーを返し、部分成功は結果・構造化ログ・CloudWatchのメトリクスで検知する。
 
-## データと保存
+## AWS構成
 
-Document・Discovery・Topic associationを分離する。[データモデル案](data-model.md) を参照。
-S3は正本、ローカルファイル出力は開発・テスト用の同じ保存契約とする。
-Raw保存後に解析し、解析に失敗したRawも再処理できるようにする。
+S3は非公開・SSE-S3・バージョニング・削除時Retain。Rawの自動削除は設定しない。
+Lambdaは専用prefixのGetObject/PutObjectと、存在しないキーを404として識別するため専用バケットのListBucketを持つ。
+Schedulerの信頼ポリシーはアカウントとschedule groupに限定する。
+配信失敗と関数実行失敗のDLQを分け、ログ保持30日、エラー・部分失敗アラームを定義する。
+アラームの外部通知先は未設定。運用開始時に人間が監視先と費用を確認する。
 
-冪等性は「HTTPを再取得しない」「記事を再保存しない」「発見履歴を失わない」を混同しない。
-実行・再処理ID、Document ID、内容ハッシュ、完了manifestを組み合わせ、保存中断と再実行の境界を設計する。
+## 制約・将来
 
-## 失敗・観測・費用
-
-情報源単位の失敗を記録して他を継続する。保存失敗を隠さず、成功・部分成功・全件失敗を実行結果に残す。
-構造化ログにrun_id、source_id、stage、収集数、更新数、重複数、失敗数、所要時間を含める。
-HTTPはタイムアウト、有限のバックオフ、取得サイズ・並列数の上限を持つ。
-S3リクエスト数と索引の読み書き量、Lambda実行時間、ログ保持期間を費用の評価対象にする。
-
-## 未解決事項とトレードオフ
-
-- JSONLのバッチ保存と実行をまたぐ重複排除の両立。S3索引・スナップショット案の読み書き量と中断復旧を検証する。
-- 単一writerの保証方法。Lambdaの同時実行制限だけではローカルCLIとの競合を防げない。S3への同時書き込みを制御する方法を決める。
-- URL正規化規則、URLがない記事、異なる情報源のメタデータ競合と内容ハッシュの対象。
-- manifest公開と索引更新の順序、公開済みバッチを二重処理しない取り込み契約。
-- 設定変更時のテーマ関連削除・履歴の扱い、再処理時の設定・正規化バージョンの保持。
-- スケジュール周期、取得上限、Raw保持期間、ログ保持期間、監視閾値。
-
-実装前に判断を記録し、日付を変えた再実行と保存途中の障害をテストする。
-
-## 将来の拡張
-
-自宅Talos / Kubernetes上のOpenSearchがS3からPullし、Document IDでupsertする。
-差分取り込みは完了manifestを境界とし、再インデックスは保存済みデータから行う想定。
-Web Search追加時は規約に基づく保存範囲を確認し、検索結果メタデータとページ本文を分離する。
-Enriched、LLM、通知は保存データを入力とする別処理として追加する。
+headはDocument索引と全run参照を保持し全件読み書きする。16MiBに近づく前に分割・コンパクションを設計する。
+CAS失敗で残った非公開バッチ・Rawの自動GCは行わない。取り込み側はバッチprefixを直接listしない。
+テーマ関連は発見履歴として蓄積し、設定から消したテーマの過去関連も保持する。
+将来の自宅OpenSearchはS3をPullし、headで公開されたgeneration順にDocumentをupsertする。
+GitHub OIDC・専用bootstrapとruntime permissions boundaryを準備した。mainへのマージ後に、GitHub Actions経由のアプリ実デプロイ・定期実行・障害復旧を確認する。
+詳細は [bootstrap手順](aws-bootstrap.md) を参照する。

@@ -1,0 +1,13 @@
+schema_version: 1
+sources:
+  - id: rust-blog
+    url: https://blog.rust-lang.org/feed.xml
+topics:
+  - id: software-engineering
+    name: Software Engineering
+    description: Rustとソフトウェア開発の動向
+    sources: [rust-blog]
+http:
+  timeout_seconds: 10
+  attempts: 2
+  max_bytes: 2097152

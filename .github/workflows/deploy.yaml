@@ -1,0 +1,66 @@
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: curatedz-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_repository.full_name == github.repository))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+    steps:
+      - name: Checkout verified commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
+          persist-credentials: false
+      - name: Setup tools
+        uses: jdx/mise-action@6d1e696aa24c1aa1bcc1adea0212707c71ab78a8 # v3.6.1
+      - name: Reject stale or unverified deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)" = "$DEPLOY_SHA"
+          test -n "$AWS_REGION"
+      - name: Prepare Rust
+        run: mise run prepare:rust
+      - name: Verify source
+        run: mise run check
+      - name: Build Lambda Linux ARM64
+        run: mise run build:lambda
+      - name: Authenticate with AWS OIDC
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+          role-session-name: Curatedz-${{ github.run_id }}
+      - name: Deploy Curatedz
+        working-directory: infra
+        env:
+          SCHEDULE_ENABLED: ${{ vars.CURATEDZ_SCHEDULE_ENABLED || 'false' }}
+        run: |
+          case "$SCHEDULE_ENABLED" in true|false) ;; *) exit 1 ;; esac
+          npm run build
+          npm run cdk -- deploy Curatedz --method direct --require-approval never -c "scheduleEnabled=$SCHEDULE_ENABLED"

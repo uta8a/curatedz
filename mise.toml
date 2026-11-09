@@ -2,17 +2,21 @@
 minimum_release_age = "14d"
 
 [tools]
+aws-cli = "2.38.5"
+rust = { version = "1.99.1", profile = "minimal", components = ["rustfmt", "clippy"] }
+"github:cargo-lambda/cargo-lambda" = "1.9.2"
+zig = "0.15.2"
 python = "3.15.1"
 rg = "15.2.0"
 "npm:@openai/codex" = "0.164.0"
-# Codex CLI のインストールに使用。CDK 用の Node は実装時に選定する。
+# Codex CLIとCDKの実行に使用。
 node = "26.12.1"
 gh = "2.103.2"
 pinact = "5.0.2"
 
 [tasks.check]
-description = "認証情報なしで実行できる開発基盤の検証"
-depends = ["check:config", "check:rules", "check:workflows", "test:tooling"]
+description = "Rust・CDK・開発基盤を認証情報なしで検証"
+depends = ["check:config", "check:rules", "check:workflows", "test:tooling", "check:rust", "check:infra"]
 
 [tasks."check:config"]
 run = "python3 .github/scripts/check_repository.py"
@@ -25,3 +29,20 @@ run = "bash .github/scripts/check-workflows-pinact.sh"
 
 [tasks."test:tooling"]
 run = "python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v"
+
+[tasks."check:rust"]
+run = ["cargo fmt --all --check", "cargo clippy --workspace --all-features --all-targets --locked -- -D warnings", "cargo test --workspace --all-features --locked", "cargo run --locked -p curatedz-cli -- --validate"]
+
+[tasks."check:infra"]
+dir = "infra"
+run = ["npm ci --ignore-scripts --no-audit --no-fund", "npm test", "npm run synth -- -c synthOnly=true"]
+
+[tasks."build:lambda"]
+run = "cargo lambda build --release --arm64 --package curatedz-lambda --bin bootstrap --locked"
+
+[tasks.demo]
+run = "cargo run --locked -p curatedz-cli -- --config fixtures/topics.yaml --fixtures fixtures --topic software-engineering --run-id demo"
+
+[tasks."prepare:rust"]
+description = "既存ツールチェーンにもformat/lint用コンポーネントを導入"
+run = "rustup component add rustfmt clippy"
