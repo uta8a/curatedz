@@ -11,6 +11,10 @@ test('GitHub信頼とCloudFormation権限を専用スコープへ限定する', 
   });
   assert.equal(trust.Condition.StringEquals['token.actions.githubusercontent.com:aud'], 'sts.amazonaws.com');
   const execution = access.Resources.ExecutionPolicy.Properties.PolicyDocument.Statement;
+  const bootstrapVersion = execution.find((entry: { Action: string[] }) => entry.Action.includes('ssm:GetParameters'));
+  assert.deepEqual(bootstrapVersion.Resource, {
+    'Fn::Sub': 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cdk-bootstrap/curatedz/version',
+  });
   const creation = execution.find((entry: { Action: string[] }) => entry.Action.includes('iam:CreateRole'));
   assert.ok(creation.Condition.StringEquals['iam:PermissionsBoundary']);
   const listing = execution.find((entry: { Action: string[] }) => entry.Action.includes('logs:DescribeLogGroups'));

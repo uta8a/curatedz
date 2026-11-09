@@ -101,6 +101,15 @@
             {
               "Effect": "Allow",
               "Action": [
+                "ssm:GetParameters"
+              ],
+              "Resource": {
+                "Fn::Sub": "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cdk-bootstrap/curatedz/version"
+              }
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
                 "s3:*"
               ],
               "Resource": [
