@@ -176,9 +176,9 @@ OpenSearch のバージョン、chart、storage class、容量、backup 方針�
 
 ## Search API/UI と境界防御
 
-Search API は OpenSearch DSL を外部へ露出せず、query、日付範囲、source ID、page/cursor に限定する。
+Search API は OpenSearch DSL を外部へ露出せず、query、日付範囲、source ID、page/cursor に限定する。queryを省略した場合は新着記事一覧として公開日時、最終発見日時、article IDの順に決定的に並べ、queryがある場合は全文検索の関連度を優先する。
 結果は title、抜粋、公開日時、情報源、元記事 URL を返し、保存 HTML を配信しない。
-UI は同じ origin で API を利用するレスポンシブ Web UI とし、iPhone の狭い画面でも filter と結果を一列で操作できるようにする。
+UI は同じ origin で API を利用するレスポンシブ Web UI とし、初期表示で新着記事を取得する。iPhone の狭い画面でも filter と結果を一列で操作できるようにする。
 
 Cloudflare Tunnel の ingress は UI/API Service だけを向け、OpenSearch Service は ClusterIP と NetworkPolicy で API Pod からだけ許可する。
 Cloudflare Access policy は人間が Zero Trust 上で作成し、repository に許可メールアドレスや token を固定しない。

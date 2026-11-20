@@ -53,6 +53,7 @@ fn validate_token(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SearchQuery {
+    #[serde(default)]
     q: String,
     source: Option<String>,
     date_from: Option<NaiveDate>,
@@ -204,7 +205,7 @@ async fn search(
 
 fn search_body(query: SearchQuery) -> Result<Value, (StatusCode, String)> {
     let q = query.q.trim();
-    if q.is_empty() || q.chars().count() > 200 {
+    if q.chars().count() > 200 {
         return Err((StatusCode::BAD_REQUEST, "qが不正です".into()));
     }
     let page = query.page.unwrap_or(0);
@@ -241,12 +242,41 @@ fn search_body(query: SearchQuery) -> Result<Value, (StatusCode, String)> {
         }
         filters.push(json!({"range": {"published_at": range}}));
     }
-    Ok(
-        json!({"from": page * size, "size": size, "track_total_hits": true,
-        "query": {"bool": {"must": [{"multi_match": {"query": q, "fields": ["title^3", "description^2", "content"]}}], "filter": filters}},
-        "highlight": {"fields": {"content": {"fragment_size": 180, "number_of_fragments": 1}, "description": {}}},
-        "sort": [{"_score": "desc"}, {"published_at": {"order": "desc", "missing": "_last"}}]}),
-    )
+    let query = if q.is_empty() {
+        json!({"bool": {"filter": filters}})
+    } else {
+        json!({"bool": {
+            "must": [{"multi_match": {
+                "query": q,
+                "fields": ["title^3", "description^2", "content"]
+            }}],
+            "filter": filters
+        }})
+    };
+    let sort = if q.is_empty() {
+        json!([
+            {"published_at": {"order": "desc", "missing": "_last"}},
+            {"last_seen_at": {"order": "desc", "missing": "_last"}},
+            {"article_id": "asc"}
+        ])
+    } else {
+        json!([
+            {"_score": "desc"},
+            {"published_at": {"order": "desc", "missing": "_last"}},
+            {"article_id": "asc"}
+        ])
+    };
+    Ok(json!({
+        "from": page * size,
+        "size": size,
+        "track_total_hits": true,
+        "query": query,
+        "highlight": {"fields": {
+            "content": {"fragment_size": 180, "number_of_fragments": 1},
+            "description": {}
+        }},
+        "sort": sort
+    }))
 }
 
 #[tokio::main]
@@ -420,9 +450,19 @@ mod tests {
             .unwrap_err()
             .0
         };
+        let recent = search_body(SearchQuery {
+            q: String::new(),
+            source: None,
+            date_from: None,
+            date_to: None,
+            page: None,
+            size: None,
+        })
+        .unwrap();
+        assert_eq!(recent.pointer("/query/bool/filter"), Some(&json!([])));
         assert_eq!(
-            invalid(" ", None, None, None, None),
-            StatusCode::BAD_REQUEST
+            recent.pointer("/sort/0/published_at/order"),
+            Some(&json!("desc"))
         );
         assert_eq!(
             invalid("x", Some(501), None, None, None),
