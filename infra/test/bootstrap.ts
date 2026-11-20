@@ -27,4 +27,8 @@ test('GitHub信頼とCloudFormation権限を専用スコープへ限定する', 
   const write = deploy.find((entry: { Action: string[] }) => entry.Action.includes('cloudformation:CreateStack'));
   assert.equal(write.Resource['Fn::Sub'], 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/Curatedz/*');
   assert.ok(!JSON.stringify(access.Resources.GitHubRole).includes('lookup-role'));
+  const runtime = access.Resources.RuntimeBoundary.Properties.PolicyDocument.Statement;
+  const queue = runtime.find((entry: { Action: string[] }) => entry.Action.includes('sqs:ReceiveMessage'));
+  assert.ok(queue.Action.includes('sqs:DeleteMessage'));
+  assert.equal(queue.Resource['Fn::Sub'], 'arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:Curatedz-*');
 });

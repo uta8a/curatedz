@@ -1,0 +1,47 @@
+name: Runtime images
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: curatedz-runtime-images-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - binary: curatedz-sync
+            image: sync
+          - binary: curatedz-web
+            image: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Authenticate to GHCR
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Build and publish immutable image
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}/${{ matrix.image }}:${{ github.sha }}
+          BINARY: ${{ matrix.binary }}
+        run: |
+          docker buildx create --use --name curatedz-builder
+          docker buildx build --platform linux/amd64 --provenance=true --sbom=true \
+            --build-arg "BIN=$BINARY" --tag "$IMAGE" --push --metadata-file image-metadata.json \
+            --file deploy/Dockerfile .
+          test -n "$(jq -r '."containerimage.digest" // empty' image-metadata.json)"
+          printf '### %s\n`%s@%s`\n' "$BINARY" "${IMAGE%:*}" \
+            "$(jq -r '."containerimage.digest"' image-metadata.json)" >> "$GITHUB_STEP_SUMMARY"

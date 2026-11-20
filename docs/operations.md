@@ -113,3 +113,20 @@ S3バケット・ログはRetain。スタック削除後にもデータと料金
 索引16MiBの上限に達する前にDocument数、run数、S3リクエスト量・Lambda時間を計測する。
 Lambdaはアカウントの共有同時実行枠を使う。LambdaとCLIの同時実行を含む公開競合はS3 CASで処理する。
 アラームは定義のみで通知先は未設定。運用開始時にSNS等への通知設定を別途行う。
+## v2 記事処理要求
+
+Collector は RSS batch を head で公開した後、manifest が参照する `article_requests.jsonl` を Article Request Queue へ送信する。
+S3 の公開と SQS 送信の間で停止した場合、同じ `schedule_arn` と `scheduled_time` のイベントで Collector Lambda を再実行する。同じ run ID の公開済み manifest が返り、同じ要求が再送される。別の時刻を指定すると別 run になるため、欠落復旧には使わない。
+
+SQS Standard Queue は重複する可能性がある。DLQからの redrive と手動再実行も安全であることは Article Processor の state 条件付き更新で保証する。Article Failure Queue にメッセージがある場合は、URLや本文をログへ出さず message ID と article ID で原因を確認する。
+
+Processorは接続先DNSの全addressとredirect先を検証し、公開HTTP(S)以外を拒否する。robots.txtで禁止された記事、恒久的なHTTP/content-type/抽出失敗はstatusを保存してmessageを成功扱いにする。timeout、接続、429、5xx、読み取り失敗は失敗recordを保存したうえで部分バッチ失敗として再試行し、5回後にDLQへ移動する。外部サイトへのアクセスは予約同時実行数1とorigin単位の1秒間隔で直列化し、robots.txtは実行環境内で1時間cacheする。
+
+v2導入前からS3にあるDocument、または処理version更新後の未処理記事は、AWS認証後に次で確認・投入する。dry-runはURLを表示せず件数だけを返す。実行時はcontent headの成功済みversionを除外し、不変な`article-requests/v1/backfill-<hash>.jsonl`を再送元として保存する。同じコマンドの再実行とSQS重複は安全である。
+
+```sh
+mise exec -- cargo run --locked -p curatedz-content-backfill -- \
+  --bucket YOUR_BUCKET --queue-url YOUR_ARTICLE_REQUEST_QUEUE --dry-run
+mise exec -- cargo run --locked -p curatedz-content-backfill -- \
+  --bucket YOUR_BUCKET --queue-url YOUR_ARTICLE_REQUEST_QUEUE
+```

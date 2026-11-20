@@ -1,5 +1,7 @@
 # curatedz
 
+v2ではRSS metadataと本文をS3へ永続化し、自宅KubernetesのOpenSearchへ差分同期してCloudflare Access配下のUI/APIから検索する。AWS側はCollector Lambda、SQS、Article Processor Lambda、S3を使用し、自宅側がS3をPullする。設計と人間作業の境界は[v2設計](docs/v2-design.md)を参照する。
+
 関心テーマを起点にRSS / Atomを収集し、取得時点のRawと正規化データを長期活用するための個人向け基盤です。
 Rustの共通処理をローカルCLIとLambdaで使用し、AWSではEventBridge Scheduler → 単一Lambda → S3で実行します。
 

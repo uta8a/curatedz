@@ -1,4 +1,6 @@
+pub mod article_fetch;
 pub mod config;
+pub mod content;
 pub mod fetch;
 pub mod model;
 pub mod normalize;
@@ -17,6 +19,10 @@ pub enum Error {
     Fetch(String),
     #[error("正規化エラー: {0}")]
     Normalize(String),
+    #[error("安全性エラー: {0}")]
+    Security(String),
+    #[error("本文抽出エラー: {0}")]
+    Extraction(String),
     #[error(transparent)]
     Json(#[from] serde_json::Error),
     #[error(transparent)]

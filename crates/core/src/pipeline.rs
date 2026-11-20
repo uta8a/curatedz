@@ -35,6 +35,33 @@ async fn load<T: DeserializeOwned>(store: &dyn Store, key: &str) -> Result<T> {
     Ok(serde_json::from_slice(&object.bytes)?)
 }
 
+pub async fn article_requests(
+    store: &dyn Store,
+    manifest: &Manifest,
+) -> Result<(String, Vec<ArticleRequest>)> {
+    let key = manifest
+        .objects
+        .get("article_requests")
+        .ok_or_else(|| Error::Storage("manifestにarticle_requestsがありません".into()))?;
+    let object = store
+        .get(key)
+        .await?
+        .ok_or_else(|| Error::Storage(format!("オブジェクトがありません: {key}")))?;
+    let mut requests = Vec::new();
+    for (index, line) in object.bytes.split(|byte| *byte == b'\n').enumerate() {
+        if line.is_empty() {
+            continue;
+        }
+        requests.push(serde_json::from_slice(line).map_err(|error| {
+            Error::Storage(format!(
+                "article_requestsの{}行目が不正です: {error}",
+                index + 1
+            ))
+        })?);
+    }
+    Ok((key.clone(), requests))
+}
+
 fn jsonl<T: Serialize>(values: impl IntoIterator<Item = T>) -> Result<Vec<u8>> {
     let mut result = Vec::new();
     for value in values {
@@ -214,7 +241,10 @@ pub async fn execute(
                             discovery_id: discovery_id.clone(),
                             document_id: document.document_id.clone(),
                             source_id: source_id.clone(),
+                            source_type: "rss".into(),
+                            feed_url: Some(capture.source_url.clone()),
                             source_item_id: entry.source_item_id,
+                            original_url: entry.original_url,
                             observed_at: capture.observed_at,
                             run_id: run.run_id.clone(),
                             raw_key: capture.raw_key.clone().expect("解析対象Rawあり"),
@@ -254,11 +284,23 @@ pub async fn execute(
             return Ok(result);
         }
         let mut changed = Vec::new();
+        let mut article_requests = Vec::new();
         for (document_id, (document, index)) in &candidates {
             match head.documents.get(document_id) {
                 Some(existing) if rank(index) <= rank(existing) => continue,
                 Some(existing) if existing.content_hash == index.content_hash => {}
-                _ => changed.push(document.clone()),
+                _ => {
+                    changed.push(document.clone());
+                    if let Some(requested_url) = &document.canonical_url {
+                        article_requests.push(ArticleRequest {
+                            schema_version: 1,
+                            article_id: document.document_id.clone(),
+                            requested_url: requested_url.clone(),
+                            source_id: index.source_id.clone(),
+                            processing_version: PROCESSING_VERSION.into(),
+                        });
+                    }
+                }
             }
             head.documents.insert(document_id.clone(), index.clone());
         }
@@ -284,6 +326,7 @@ pub async fn execute(
         data.insert("documents", jsonl(&changed)?);
         data.insert("discoveries", jsonl(discoveries.values())?);
         data.insert("associations", jsonl(associations.values())?);
+        data.insert("article_requests", jsonl(&article_requests)?);
         // 親headと実際の出力からキーを決め、CAS競合後に別の計画を上書きしない。
         let transaction = hash(&serde_json::to_vec(&(
             &request_hash,
