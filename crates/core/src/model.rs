@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 pub const NORMALIZER_VERSION: &str = "1";
+pub const PROCESSING_VERSION: &str = "1";
 pub const HEAD_KEY: &str = "state/v1/head.json";
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -23,10 +24,21 @@ pub struct Discovery {
     pub discovery_id: String,
     pub document_id: String,
     pub source_id: String,
+    #[serde(default = "rss_source_type")]
+    pub source_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feed_url: Option<String>,
     pub source_item_id: String,
+    /// フィードが指した記事 URL。古い v1 レコードには存在しない。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_url: Option<String>,
     pub observed_at: DateTime<Utc>,
     pub run_id: String,
     pub raw_key: String,
+}
+
+fn rss_source_type() -> String {
+    "rss".into()
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -35,6 +47,28 @@ pub struct Association {
     pub topic_id: String,
     pub discovery_id: String,
     pub config_version: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ArticleRequest {
+    pub schema_version: u32,
+    pub article_id: String,
+    pub requested_url: String,
+    pub source_id: String,
+    pub processing_version: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ArticleQueueMessage {
+    pub schema_version: u32,
+    pub bucket: String,
+    pub request_key: String,
+    pub article_id: String,
+    pub source_id: String,
+    pub requested_url: String,
+    pub processing_version: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

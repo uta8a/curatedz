@@ -3,7 +3,8 @@ use curatedz_core::{
     config::Config,
     fetch::HttpFetcher,
     id,
-    pipeline::{Run, execute},
+    model::{ArticleQueueMessage, Manifest},
+    pipeline::{Run, article_requests, execute},
     store::S3Store,
 };
 use lambda_runtime::{Error, LambdaEvent, service_fn};
@@ -16,6 +17,52 @@ struct Event {
     scheduled_time: DateTime<Utc>,
 }
 
+async fn enqueue(
+    client: &aws_sdk_sqs::Client,
+    queue_url: &str,
+    bucket: &str,
+    store: &S3Store,
+    manifest: &Manifest,
+) -> Result<usize, Error> {
+    let (request_key, requests) = article_requests(store, manifest).await?;
+    let mut sent = 0;
+    for chunk in requests.chunks(10) {
+        let mut entries = Vec::with_capacity(chunk.len());
+        for (index, request) in chunk.iter().enumerate() {
+            let message = ArticleQueueMessage {
+                schema_version: 1,
+                bucket: bucket.into(),
+                request_key: request_key.clone(),
+                article_id: request.article_id.clone(),
+                source_id: request.source_id.clone(),
+                requested_url: request.requested_url.clone(),
+                processing_version: request.processing_version.clone(),
+            };
+            entries.push(
+                aws_sdk_sqs::types::SendMessageBatchRequestEntry::builder()
+                    .id(format!("item-{index}"))
+                    .message_body(serde_json::to_string(&message)?)
+                    .build()?,
+            );
+        }
+        let output = client
+            .send_message_batch()
+            .queue_url(queue_url)
+            .set_entries(Some(entries))
+            .send()
+            .await?;
+        if !output.failed().is_empty() {
+            return Err(format!(
+                "記事処理要求の送信に{}件失敗しました。同じrunを再実行してください",
+                output.failed().len()
+            )
+            .into());
+        }
+        sent += output.successful().len();
+    }
+    Ok(sent)
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     tracing_subscriber::fmt()
@@ -23,12 +70,19 @@ async fn main() -> Result<(), Error> {
         .with_writer(std::io::stderr)
         .init();
     let config = Config::parse(include_str!("../../../config/topics.yaml"))?;
-    let store = S3Store::new(std::env::var("CURATEDZ_BUCKET")?).await;
+    let bucket = std::env::var("CURATEDZ_BUCKET")?;
+    let queue_url = std::env::var("CURATEDZ_ARTICLE_QUEUE_URL")?;
+    let aws_config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+    let sqs = aws_sdk_sqs::Client::new(&aws_config);
+    let store = S3Store::new(bucket.clone()).await;
     let fetcher = HttpFetcher::new(config.http.clone())?;
     lambda_runtime::run(service_fn(|event: LambdaEvent<Event>| {
         let config = &config;
         let store = &store;
         let fetcher = &fetcher;
+        let sqs = &sqs;
+        let bucket = &bucket;
+        let queue_url = &queue_url;
         async move {
             let scheduled = event.payload.scheduled_time.to_rfc3339();
             let run_id =
@@ -45,6 +99,12 @@ async fn main() -> Result<(), Error> {
                     "全情報源の収集に失敗しました。新しいrunで復旧してください".into(),
                 );
             }
+            let queued = enqueue(sqs, queue_url, bucket, store, &result).await?;
+            tracing::info!(
+                run_id = run.run_id,
+                stage = "article_requests_queued",
+                queued
+            );
             Ok(serde_json::to_value(result)?)
         }
     }))

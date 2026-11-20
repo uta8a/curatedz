@@ -3,6 +3,7 @@ use crate::{Error, Result, config::http_url, hash, id, model::Document};
 pub struct Entry {
     pub document: Document,
     pub source_item_id: String,
+    pub original_url: Option<String>,
 }
 
 pub fn parse(bytes: &[u8], source_id: &str, source_url: &str) -> Result<Vec<Entry>> {
@@ -19,7 +20,7 @@ pub fn parse(bytes: &[u8], source_id: &str, source_url: &str) -> Result<Vec<Entr
     feed.entries
         .into_iter()
         .map(|entry| {
-            let canonical_url = entry
+            let original_url = entry
                 .links
                 .iter()
                 .filter(|link| link.rel.as_deref().is_none_or(|r| r == "alternate"))
@@ -30,6 +31,9 @@ pub fn parse(bytes: &[u8], source_id: &str, source_url: &str) -> Result<Vec<Entr
                 })
                 .map(|url| http_url(&url).map(|u| u.to_string()))
                 .transpose()?;
+            // v1 ではフィードの alternate URL を Document の canonical URL として扱う。
+            // v2 の本文取得でも観測した URL を失わないよう Discovery にも保存する。
+            let canonical_url = original_url.clone();
             let document_id = match &canonical_url {
                 Some(url) => id(&["url", url]),
                 None if !entry.id.is_empty() => id(&["source", source_id, &entry.id]),
@@ -57,6 +61,7 @@ pub fn parse(bytes: &[u8], source_id: &str, source_url: &str) -> Result<Vec<Entr
             Ok(Entry {
                 document,
                 source_item_id: entry.id,
+                original_url,
             })
         })
         .collect()

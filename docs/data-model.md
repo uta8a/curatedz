@@ -10,9 +10,11 @@ YAMLの設定内容を正規化JSONにしたSHA-256をconfig_versionとする。
 ## レコード
 
 - Document: schema_version、document_id、canonical_url、title、published_at、updated_at、authors、summary、content_hash。
-- Discovery: discovery_id、document_id、source_id、source_item_id、observed_at、run_id、raw_key。
+- Discovery: discovery_id、document_id、source_id、source_type、feed_url、source_item_id、original_url、observed_at、run_id、raw_key。v2追加fieldは後方互換defaultを持ち、古いレコードはsource_type=`rss`、URLはnullとして読む。
 - Association: document_id、topic_id、discovery_id、config_version。削除せず履歴として蓄積する。
 - Manifest: 実行ID、設定・正規化版、収集/replay、元実行ID、情報源ごとの結果、件数、JSONLキー。
+- ArticleRequest: schema_version、article_id、requested_url、source_id、processing_version。変更DocumentのうちURLがあるものだけを公開済みbatchの`article_requests.jsonl`へ保存し、SQS送信の再送元とする。
+- ContentRecord: article_id、requested/final/canonical URL、Raw/本文keyとhash、status、取得時刻、HTTP情報、failure、processing version、attempt。Raw・本文・record・commitを不変保存し、`article-content/v1/state/head.json`のCAS成功で公開する。
 
 Document IDは `sha256:` + SHA256(JSON配列)で、入力はURLありなら `["url", canonical_url]`、なければ `["source", source_id, entry_id]`。
 タイトル・公開日時・テーマ・収集日はIDに含めない。内容ハッシュはcontent_hashを空文字にしたDocumentのJSONから計算する。
@@ -29,8 +31,14 @@ raw/v1/run=<run_id>/source=<source_id>/capture.json
 batches/v1/<transaction_hash>/documents.jsonl
 batches/v1/<transaction_hash>/discoveries.jsonl
 batches/v1/<transaction_hash>/associations.jsonl
+batches/v1/<transaction_hash>/article_requests.jsonl
 batches/v1/<transaction_hash>/manifest.json
 state/v1/head.json
+article-content/v1/raw/article=<article_id>/response=<hash>.bin
+article-content/v1/blobs/<text_hash>.txt
+article-content/v1/records/article=<article_id>/version=<processing_version>/<record_hash>.json
+article-content/v1/commits/generation=<generation>-<commit_hash>.json
+article-content/v1/state/head.json
 ```
 
 captureは元バイト列への参照、取得時刻、情報源URL、設定版、エラーを記録する。収集失敗もそのrunの結果として固定する。

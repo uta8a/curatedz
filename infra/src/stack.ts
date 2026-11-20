@@ -2,6 +2,7 @@ import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as lambdaEvents from 'aws-cdk-lib/aws-lambda-event-sources';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as scheduler from 'aws-cdk-lib/aws-scheduler';
@@ -9,7 +10,8 @@ import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 
 export interface CollectorProps extends cdk.StackProps {
-  code: lambda.Code;
+  collectorCode: lambda.Code;
+  processorCode: lambda.Code;
   scheduleEnabled: boolean;
 }
 
@@ -26,20 +28,83 @@ export class CollectorStack extends cdk.Stack {
       versioned: true,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
+    const syncReadPolicy = new iam.ManagedPolicy(this, 'SyncReadPolicy', {
+      description: 'Read-only access for the home Kubernetes OpenSearch sync worker',
+      statements: [
+        new iam.PolicyStatement({
+          actions: ['s3:GetObject'],
+          resources: [
+            bucket.arnForObjects('state/v1/*'),
+            bucket.arnForObjects('batches/v1/*'),
+            bucket.arnForObjects('article-content/v1/*'),
+          ],
+        }),
+        new iam.PolicyStatement({
+          actions: ['s3:ListBucket'],
+          resources: [bucket.bucketArn],
+          conditions: { StringLike: { 's3:prefix': ['state/v1/*', 'batches/v1/*', 'article-content/v1/*'] } },
+        }),
+      ],
+    });
     const logGroup = new logs.LogGroup(this, 'CollectorLogs', {
       retention: logs.RetentionDays.ONE_MONTH,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+    const articleFailures = new sqs.Queue(this, 'ArticleFailures', {
+      retentionPeriod: cdk.Duration.days(14),
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      enforceSSL: true,
+    });
+    const articleRequests = new sqs.Queue(this, 'ArticleRequests', {
+      visibilityTimeout: cdk.Duration.minutes(6),
+      retentionPeriod: cdk.Duration.days(14),
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      enforceSSL: true,
+      deadLetterQueue: { queue: articleFailures, maxReceiveCount: 5 },
     });
     const collector = new lambda.Function(this, 'Collector', {
       runtime: lambda.Runtime.PROVIDED_AL2023,
       architecture: lambda.Architecture.ARM_64,
       handler: 'bootstrap',
-      code: props.code,
+      code: props.collectorCode,
       memorySize: 1024,
       timeout: cdk.Duration.minutes(15),
       logGroup,
+      environment: {
+        CURATEDZ_BUCKET: bucket.bucketName,
+        CURATEDZ_ARTICLE_QUEUE_URL: articleRequests.queueUrl,
+      },
+    });
+    articleRequests.grantSendMessages(collector);
+    const processorLogs = new logs.LogGroup(this, 'ArticleProcessorLogs', {
+      retention: logs.RetentionDays.ONE_MONTH,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+    const processor = new lambda.Function(this, 'ArticleProcessor', {
+      runtime: lambda.Runtime.PROVIDED_AL2023,
+      architecture: lambda.Architecture.ARM_64,
+      handler: 'bootstrap',
+      code: props.processorCode,
+      memorySize: 1024,
+      timeout: cdk.Duration.minutes(1),
+      reservedConcurrentExecutions: 1,
+      logGroup: processorLogs,
       environment: { CURATEDZ_BUCKET: bucket.bucketName },
     });
+    processor.addEventSource(new lambdaEvents.SqsEventSource(articleRequests, {
+      batchSize: 5,
+      reportBatchItemFailures: true,
+    }));
+    for (const prefix of ['batches/v1/', 'article-requests/v1/', 'article-content/v1/']) {
+      processor.addToRolePolicy(new iam.PolicyStatement({
+        actions: ['s3:GetObject', 's3:PutObject'],
+        resources: [bucket.arnForObjects(`${prefix}*`)],
+      }));
+    }
+    processor.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['s3:ListBucket'], resources: [bucket.bucketArn],
+      conditions: { StringLike: { 's3:prefix': ['batches/v1/*', 'article-requests/v1/*', 'article-content/v1/*'] } },
+    }));
     for (const prefix of ['raw/v1/', 'batches/v1/', 'state/v1/']) {
       collector.addToRolePolicy(new iam.PolicyStatement({
         actions: ['s3:GetObject', 's3:PutObject'],
@@ -49,6 +114,7 @@ export class CollectorStack extends cdk.Stack {
     // 存在しないキーのGetObjectを403ではなく404として判別するための権限。
     collector.addToRolePolicy(new iam.PolicyStatement({
       actions: ['s3:ListBucket'], resources: [bucket.bucketArn],
+      conditions: { StringLike: { 's3:prefix': ['raw/v1/*', 'batches/v1/*', 'state/v1/*'] } },
     }));
     const deliveryFailures = new sqs.Queue(this, 'DeliveryFailures', {
       retentionPeriod: cdk.Duration.days(14),
@@ -109,10 +175,37 @@ export class CollectorStack extends cdk.Stack {
       threshold: 1, evaluationPeriods: 1,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
+    new cloudwatch.Alarm(this, 'ArticleFailureAlarm', {
+      metric: articleFailures.metricApproximateNumberOfMessagesVisible({
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    new cloudwatch.Alarm(this, 'ArticleBacklogAlarm', {
+      metric: articleRequests.metricApproximateNumberOfMessagesVisible({
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: 100,
+      evaluationPeriods: 2,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    new cloudwatch.Alarm(this, 'ArticleOldestMessageAlarm', {
+      metric: articleRequests.metricApproximateAgeOfOldestMessage({
+        period: cdk.Duration.minutes(5),
+      }),
+      threshold: cdk.Duration.hours(1).toSeconds(),
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
     new cdk.CfnOutput(this, 'BucketName', { value: bucket.bucketName });
     new cdk.CfnOutput(this, 'FunctionName', { value: collector.functionName });
     new cdk.CfnOutput(this, 'ErrorAlarmName', { value: errorAlarm.alarmName });
     new cdk.CfnOutput(this, 'ExecutionFailureQueue', { value: failures.queueUrl });
     new cdk.CfnOutput(this, 'DeliveryFailureQueue', { value: deliveryFailures.queueUrl });
+    new cdk.CfnOutput(this, 'ArticleRequestQueue', { value: articleRequests.queueUrl });
+    new cdk.CfnOutput(this, 'ArticleFailureQueue', { value: articleFailures.queueUrl });
+    new cdk.CfnOutput(this, 'SyncReadPolicyArn', { value: syncReadPolicy.managedPolicyArn });
   }
 }

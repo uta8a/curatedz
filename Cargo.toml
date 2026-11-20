@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/core", "crates/cli", "crates/collector-lambda"]
+members = ["crates/core", "crates/cli", "crates/collector-lambda", "crates/article-processor-lambda", "crates/opensearch-sync", "crates/search-web", "crates/content-backfill"]
 resolver = "2"
 
 [workspace.package]
@@ -10,23 +10,29 @@ license = "Apache-2.0"
 
 [workspace.dependencies]
 async-trait = { version = "=0.1.92" }
+axum = { version = "=0.8.9" }
 chrono = { version = "=0.4.45", features = ["serde"] }
-clap = { version = "=4.6.7", features = ["derive"] }
+clap = { version = "=4.6.7", features = ["derive", "env"] }
 feed-rs = { version = "=3.0.0" }
 fs2 = { version = "=0.4.3" }
-reqwest = { version = "=0.13.5", default-features = false, features = ["rustls", "stream"] }
+reqwest = { version = "=0.13.5", default-features = false, features = ["rustls", "stream", "json"] }
+readabilityrs = { version = "=0.1.4" }
+scraper = { version = "=0.25.0" }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = { version = "=1.0.154" }
 serde_yaml_ng = { version = "=0.10.0" }
 sha2 = { version = "=0.11.1" }
 thiserror = { version = "=2.0.21" }
-tokio = { version = "=1.54.1", features = ["macros", "rt-multi-thread", "time", "net", "io-util"] }
+tokio = { version = "=1.54.1", features = ["macros", "rt-multi-thread", "time", "net", "io-util", "sync"] }
 tracing = { version = "=0.1.44" }
 tracing-subscriber = { version = "=0.3.23", features = ["json", "env-filter"] }
+tower = { version = "=0.5.3", features = ["util"] }
 url = { version = "=2.5.8" }
 aws-config = { version = "=1.13.0" }
 aws-sdk-s3 = { version = "=1.155.0", default-features = false, features = ["rt-tokio", "rustls", "default-https-client"] }
+aws-sdk-sqs = { version = "=1.97.0", default-features = false, features = ["rt-tokio", "rustls", "default-https-client"] }
 lambda_runtime = { version = "=1.5.0" }
+jsonwebtoken = { version = "=11.1.0", default-features = false, features = ["rust_crypto"] }
 tempfile = { version = "=3.27.0" }
 
 [profile.release]

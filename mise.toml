@@ -38,7 +38,10 @@ dir = "infra"
 run = ["npm ci --ignore-scripts --no-audit --no-fund", "npm test", "npm run synth -- -c synthOnly=true"]
 
 [tasks."build:lambda"]
-run = "cargo lambda build --release --arm64 --package curatedz-lambda --bin bootstrap --locked"
+run = [
+  "cargo lambda build --release --arm64 --package curatedz-lambda --bin bootstrap --locked",
+  "cargo lambda build --release --arm64 --package curatedz-article-processor --bin article-processor --locked",
+]
 
 [tasks.demo]
 run = "cargo run --locked -p curatedz-cli -- --config fixtures/topics.yaml --fixtures fixtures --topic software-engineering --run-id demo"

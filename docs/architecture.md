@@ -16,10 +16,12 @@ flowchart TD
     Commit --> Storage[S3 / ローカルファイル]
     Raw --> Replay[ネットワーク不要のreplay]
     Replay --> Normalize
+    Commit --> Requests[article_requests JSONL]
+    Requests --> Queue[SQS Article Requests]
 ```
 
 RSS収集、正規化、保存をモジュールとして分け、CLIとLambdaで同じexecuteを使う。
-Web Search、外部API追加、本文抽出、LLM、通知、OpenSearch構築はv1対象外。
+Web Search、外部API追加、LLM、通知、OpenSearch構築はv1対象外。v2の本文取得要求だけは公開済みbatchからSQSへ送る。
 Step Functions、DynamoDB、VPC・NATや常時稼働コンポーネントは使用しない。
 
 ## 技術選定
@@ -60,6 +62,7 @@ Raw取得結果を先に固定し、解析失敗も保存済み入力から追�
 HTTPは10秒まで・最大2試行・逐次取得、サイズと件数も制限する。
 フィード失敗は部分成功として記録し、保存失敗は呼び出し全体をエラーにする。
 Lambdaは全情報源失敗でエラーを返し、部分成功は結果・構造化ログ・CloudWatchのメトリクスで検知する。
+head公開後のSQS送信に失敗した場合は同じScheduler event（同じrun ID）を再実行し、公開済みmanifestのarticle_requestsから再送する。SQS Standard Queueの重複配信を前提とし、Processor側で冪等に処理する。
 
 ## AWS構成
 
@@ -74,6 +77,6 @@ Schedulerの信頼ポリシーはアカウントとschedule groupに限定する
 headはDocument索引と全run参照を保持し全件読み書きする。16MiBに近づく前に分割・コンパクションを設計する。
 CAS失敗で残った非公開バッチ・Rawの自動GCは行わない。取り込み側はバッチprefixを直接listしない。
 テーマ関連は発見履歴として蓄積し、設定から消したテーマの過去関連も保持する。
-将来の自宅OpenSearchはS3をPullし、headで公開されたgeneration順にDocumentをupsertする。
+自宅OpenSearch同期workerはS3をPullし、RSSと本文のheadで公開されたgenerationを別checkpointで追跡してDocumentをupsertする。再構築は別indexへgeneration 0から投入し、成功後にaliasを切り替える。
 GitHub OIDC・専用bootstrapとruntime permissions boundaryを準備した。mainへのマージ後に、GitHub Actions経由のアプリ実デプロイ・定期実行・障害復旧を確認する。
 詳細は [bootstrap手順](aws-bootstrap.md) を参照する。

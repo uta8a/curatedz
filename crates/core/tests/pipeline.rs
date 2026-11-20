@@ -6,7 +6,7 @@ use curatedz_core::{
     fetch::{Fetcher, Response},
     model::{HEAD_KEY, Head, Manifest},
     normalize,
-    pipeline::{Run, execute},
+    pipeline::{Run, article_requests, execute},
     store::{LocalStore, MemoryStore, Object, Store},
 };
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -74,6 +74,10 @@ fn normalization_handles_rss_atom_missing_date_and_encoding() {
         rss[0].document.canonical_url.as_deref(),
         Some("https://example.com/post?x=1")
     );
+    assert_eq!(
+        rss[0].original_url.as_deref(),
+        Some("https://example.com/post?x=1")
+    );
     assert!(rss[1].document.published_at.is_none());
     let atom = normalize::parse(
         include_bytes!("../../../fixtures/atom.xml"),
@@ -98,6 +102,15 @@ fn normalization_handles_rss_atom_missing_date_and_encoding() {
 }
 
 #[test]
+fn discovery_without_original_url_remains_readable() {
+    let json = r#"{"discovery_id":"d","document_id":"a","source_id":"s","source_item_id":"i","observed_at":"2026-11-09T00:00:00Z","run_id":"r","raw_key":"raw"}"#;
+    let discovery: curatedz_core::model::Discovery = serde_json::from_str(json).unwrap();
+    assert!(discovery.original_url.is_none());
+    assert_eq!(discovery.source_type, "rss");
+    assert!(discovery.feed_url.is_none());
+}
+
+#[test]
 fn document_identity_survives_title_date_and_source_changes() {
     let a = normalize::parse(RSS, "a", "https://example.com/feed").unwrap();
     let changed = String::from_utf8(RSS.to_vec())
@@ -118,6 +131,9 @@ async fn same_run_skips_fetch_and_next_day_keeps_discovery_and_topics() {
         .unwrap();
     assert_eq!(first.counts.documents, 2);
     assert_eq!(first.counts.associations, 4);
+    let (_, requests) = article_requests(&store, &first).await.unwrap();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0].requested_url, "https://example.com/post?x=1");
     assert_eq!(fetcher.calls.load(Ordering::SeqCst), 1);
     let again = execute(&config(), &run("one"), &fetcher, &store)
         .await
@@ -132,6 +148,7 @@ async fn same_run_skips_fetch_and_next_day_keeps_discovery_and_topics() {
     assert_eq!(next.counts.documents, 0);
     assert_eq!(next.counts.discoveries, 2);
     assert_eq!(next.counts.associations, 4);
+    assert!(article_requests(&store, &next).await.unwrap().1.is_empty());
     let mut different = run("one");
     different.topics.push("rust".into());
     assert!(

@@ -72,7 +72,12 @@
             {
               "Effect": "Allow",
               "Action": [
-                "sqs:SendMessage"
+                "sqs:SendMessage",
+                "sqs:ReceiveMessage",
+                "sqs:DeleteMessage",
+                "sqs:ChangeMessageVisibility",
+                "sqs:GetQueueAttributes",
+                "sqs:GetQueueUrl"
               ],
               "Resource": {
                 "Fn::Sub": "arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:Curatedz-*"
