@@ -49,6 +49,12 @@ test('GitHub信頼とCloudFormation権限を専用スコープへ限定する', 
   const rolesAnywhere = execution.find((entry: { Action: string[] }) => entry.Action.includes('rolesanywhere:CreateTrustAnchor'));
   assert.ok(rolesAnywhere.Action.includes('rolesanywhere:CreateProfile'));
   assert.ok(JSON.stringify(rolesAnywhere.Resource).includes('rolesanywhere:${AWS::Region}:${AWS::AccountId}:trust-anchor/*'));
+  const passRole = execution.find((entry: { Action: string[] }) => entry.Action.includes('iam:PassRole'));
+  assert.deepEqual(passRole.Condition.StringEquals['iam:PassedToService'], [
+    'lambda.amazonaws.com',
+    'scheduler.amazonaws.com',
+    'rolesanywhere.amazonaws.com',
+  ]);
   const listing = execution.find((entry: { Action: string[] }) => entry.Action.includes('logs:DescribeLogGroups'));
   assert.equal(listing.Resource, '*');
   assert.deepEqual(listing.Condition.StringEquals['aws:RequestedRegion'], { Ref: 'AWS::Region' });

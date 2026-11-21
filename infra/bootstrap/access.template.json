@@ -356,7 +356,8 @@
                 "StringEquals": {
                   "iam:PassedToService": [
                     "lambda.amazonaws.com",
-                    "scheduler.amazonaws.com"
+                    "scheduler.amazonaws.com",
+                    "rolesanywhere.amazonaws.com"
                   ]
                 }
               }
