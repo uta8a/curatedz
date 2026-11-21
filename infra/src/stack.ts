@@ -8,6 +8,7 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as scheduler from 'aws-cdk-lib/aws-scheduler';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import * as rolesanywhere from 'aws-cdk-lib/aws-rolesanywhere';
 
 export interface CollectorProps extends cdk.StackProps {
   collectorCode: lambda.Code;
@@ -46,11 +47,53 @@ export class CollectorStack extends cdk.Stack {
         }),
       ],
     });
-    const syncUser = new iam.User(this, 'SyncUser', {
-      userName: 'Curatedz-HomeSync',
+    const homeSyncCaCertificate = new cdk.CfnParameter(this, 'HomeSyncCaCertificate', {
+      type: 'AWS::SSM::Parameter::Value<String>',
+      default: '/curatedz/home-sync/ca-certificate',
+      description: 'SSM String parameter containing the PEM-encoded home sync CA certificate',
     });
-    syncUser.applyRemovalPolicy(cdk.RemovalPolicy.RETAIN);
-    syncReadPolicy.attachToUser(syncUser);
+    const trustAnchor = new rolesanywhere.CfnTrustAnchor(this, 'SyncTrustAnchor', {
+      name: 'Curatedz-HomeSync',
+      enabled: true,
+      source: {
+        sourceType: 'CERTIFICATE_BUNDLE',
+        sourceData: { x509CertificateData: homeSyncCaCertificate.valueAsString },
+      },
+      tags: [{ key: 'Project', value: 'curatedz' }],
+    });
+    const syncRole = new iam.Role(this, 'SyncRole', {
+      roleName: 'Curatedz-HomeSync',
+      description: 'Short-lived S3 read access for the home Kubernetes sync worker',
+      assumedBy: new iam.ServicePrincipal('rolesanywhere.amazonaws.com', {
+        conditions: {
+          StringEquals: {
+            'aws:SourceAccount': this.account,
+            'aws:PrincipalTag/x509Subject/CN': 'curatedz-home-sync',
+          },
+          ArnEquals: { 'aws:SourceArn': trustAnchor.attrTrustAnchorArn },
+        },
+      }),
+      maxSessionDuration: cdk.Duration.hours(1),
+    });
+    syncRole.assumeRolePolicy?.addStatements(new iam.PolicyStatement({
+      principals: [new iam.ServicePrincipal('rolesanywhere.amazonaws.com')],
+      actions: ['sts:TagSession', 'sts:SetSourceIdentity'],
+      conditions: {
+        StringEquals: {
+          'aws:SourceAccount': this.account,
+          'aws:PrincipalTag/x509Subject/CN': 'curatedz-home-sync',
+        },
+        ArnEquals: { 'aws:SourceArn': trustAnchor.attrTrustAnchorArn },
+      },
+    }));
+    syncReadPolicy.attachToRole(syncRole);
+    const syncProfile = new rolesanywhere.CfnProfile(this, 'SyncProfile', {
+      name: 'Curatedz-HomeSync',
+      enabled: true,
+      durationSeconds: 3600,
+      roleArns: [syncRole.roleArn],
+      tags: [{ key: 'Project', value: 'curatedz' }],
+    });
     const logGroup = new logs.LogGroup(this, 'CollectorLogs', {
       retention: logs.RetentionDays.ONE_MONTH,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
@@ -212,6 +255,8 @@ export class CollectorStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'ArticleRequestQueue', { value: articleRequests.queueUrl });
     new cdk.CfnOutput(this, 'ArticleFailureQueue', { value: articleFailures.queueUrl });
     new cdk.CfnOutput(this, 'SyncReadPolicyArn', { value: syncReadPolicy.managedPolicyArn });
-    new cdk.CfnOutput(this, 'SyncUserName', { value: syncUser.userName });
+    new cdk.CfnOutput(this, 'SyncRoleArn', { value: syncRole.roleArn });
+    new cdk.CfnOutput(this, 'SyncTrustAnchorArn', { value: trustAnchor.attrTrustAnchorArn });
+    new cdk.CfnOutput(this, 'SyncProfileArn', { value: syncProfile.attrProfileArn });
   }
 }

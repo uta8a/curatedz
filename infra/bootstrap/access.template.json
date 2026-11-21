@@ -108,9 +108,14 @@
               "Action": [
                 "ssm:GetParameters"
               ],
-              "Resource": {
-                "Fn::Sub": "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cdk-bootstrap/curatedz/version"
-              }
+              "Resource": [
+                {
+                  "Fn::Sub": "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cdk-bootstrap/curatedz/version"
+                },
+                {
+                  "Fn::Sub": "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/curatedz/home-sync/ca-certificate"
+                }
+              ]
             },
             {
               "Effect": "Allow",
@@ -248,10 +253,15 @@
                 "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/Curatedz-*"
               },
               "Condition": {
-                "ArnEquals": {
-                  "iam:PolicyARN": {
-                    "Fn::Sub": "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
-                  }
+                "ArnLike": {
+                  "iam:PolicyARN": [
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+                    },
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/Curatedz-*"
+                    }
+                  ]
                 }
               }
             },
@@ -276,23 +286,6 @@
             {
               "Effect": "Allow",
               "Action": [
-                "iam:CreateUser",
-                "iam:PutUserPermissionsBoundary"
-              ],
-              "Resource": {
-                "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:user/Curatedz-*"
-              },
-              "Condition": {
-                "StringEquals": {
-                  "iam:PermissionsBoundary": {
-                    "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/CuratedzRuntimeBoundary"
-                  }
-                }
-              }
-            },
-            {
-              "Effect": "Allow",
-              "Action": [
                 "iam:GetUser",
                 "iam:DeleteUser",
                 "iam:UpdateUser",
@@ -310,7 +303,6 @@
             {
               "Effect": "Allow",
               "Action": [
-                "iam:AttachUserPolicy",
                 "iam:DetachUserPolicy"
               ],
               "Resource": {
@@ -323,6 +315,34 @@
                   }
                 }
               }
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "rolesanywhere:CreateTrustAnchor",
+                "rolesanywhere:GetTrustAnchor",
+                "rolesanywhere:UpdateTrustAnchor",
+                "rolesanywhere:DeleteTrustAnchor",
+                "rolesanywhere:EnableTrustAnchor",
+                "rolesanywhere:DisableTrustAnchor",
+                "rolesanywhere:CreateProfile",
+                "rolesanywhere:GetProfile",
+                "rolesanywhere:UpdateProfile",
+                "rolesanywhere:DeleteProfile",
+                "rolesanywhere:EnableProfile",
+                "rolesanywhere:DisableProfile",
+                "rolesanywhere:TagResource",
+                "rolesanywhere:UntagResource",
+                "rolesanywhere:ListTagsForResource"
+              ],
+              "Resource": [
+                {
+                  "Fn::Sub": "arn:${AWS::Partition}:rolesanywhere:${AWS::Region}:${AWS::AccountId}:trust-anchor/*"
+                },
+                {
+                  "Fn::Sub": "arn:${AWS::Partition}:rolesanywhere:${AWS::Region}:${AWS::AccountId}:profile/*"
+                }
+              ]
             },
             {
               "Effect": "Allow",
