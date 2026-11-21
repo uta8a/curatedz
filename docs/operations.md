@@ -57,6 +57,20 @@ mise exec -- npm run cdk -- deploy Curatedz
 `-c synthOnly=true` はテストfixtureをアセットにした構造検証専用。デプロイには使わない。
 通常のCDKアプリは実際のLinux ARM64 ELFがない場合に失敗する。
 
+## 自宅同期用Access Keyの発行
+
+CDKは`Curatedz-HomeSync` IAM User、permissions boundary、S3読み取り専用Managed Policyを作成するが、Access Keyは作成しない。GitHub Actions、CloudFormation Output、CIログにAccess Key IDやSecret Access Keyを出力しない。
+
+デプロイ成功後、人間がAWSマネジメントコンソールで次を実施する。
+
+1. CloudFormationの`Curatedz`スタックで`BucketName`、`SyncUserName`、`SyncReadPolicyArn`出力を確認する。
+2. IAMのUsersから`Curatedz-HomeSync`を開き、permissions boundaryと同期用Managed Policyが関連付いていることを確認する。
+3. Security credentialsのAccess keysからCreate access keyを選び、ユースケースはAWS外で動くworkloadとして作成する。
+4. 作成完了画面でAccess Key IDとSecret Access Keyを一度だけ確認し、Git、チャット、CIログ、shell historyへ保存せず、手元から`curatedz-aws` Kubernetes Secretへ設定する。
+5. Secret Access Keyを閉じた後に再表示できるとは扱わない。紛失時は新しいKeyを作成し、同期確認後に古いKeyを無効化・削除する。
+
+IAM Userにはコンソールpasswordを設定しない。Keyローテーション中を除き有効なAccess Keyは1本とし、未使用期間と最終利用サービスをIAMコンソールで確認する。
+
 ## 手動確認
 
 CLIをS3へ接続する場合:

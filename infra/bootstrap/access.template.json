@@ -276,6 +276,57 @@
             {
               "Effect": "Allow",
               "Action": [
+                "iam:CreateUser",
+                "iam:PutUserPermissionsBoundary"
+              ],
+              "Resource": {
+                "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:user/Curatedz-*"
+              },
+              "Condition": {
+                "StringEquals": {
+                  "iam:PermissionsBoundary": {
+                    "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/CuratedzRuntimeBoundary"
+                  }
+                }
+              }
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "iam:GetUser",
+                "iam:DeleteUser",
+                "iam:UpdateUser",
+                "iam:TagUser",
+                "iam:UntagUser",
+                "iam:ListUserTags",
+                "iam:ListUserPolicies",
+                "iam:ListAttachedUserPolicies",
+                "iam:DeleteUserPermissionsBoundary"
+              ],
+              "Resource": {
+                "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:user/Curatedz-*"
+              }
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "iam:AttachUserPolicy",
+                "iam:DetachUserPolicy"
+              ],
+              "Resource": {
+                "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:user/Curatedz-*"
+              },
+              "Condition": {
+                "ArnLike": {
+                  "iam:PolicyARN": {
+                    "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/Curatedz-*"
+                  }
+                }
+              }
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
                 "iam:PassRole"
               ],
               "Resource": {

@@ -61,6 +61,15 @@ test('非公開保存、定期実行、DLQ、最小権限を構成する', () =>
   assert.ok(managed.includes('article-content/v1/'));
   assert.ok(managed.includes('s3:GetObject'));
   assert.ok(!managed.includes('s3:PutObject'));
+  template.resourceCountIs('AWS::IAM::User', 1);
+  template.hasResourceProperties('AWS::IAM::User', {
+    UserName: 'Curatedz-HomeSync',
+    PermissionsBoundary: Match.anyValue(),
+  });
+  template.hasResourceProperties('AWS::IAM::ManagedPolicy', {
+    Users: [Match.anyValue()],
+  });
+  template.resourceCountIs('AWS::IAM::AccessKey', 0);
   const alarms = JSON.stringify(template.findResources('AWS::CloudWatch::Alarm'));
   assert.ok(alarms.includes('ApproximateNumberOfMessagesVisible'));
   assert.ok(alarms.includes('ApproximateAgeOfOldestMessage'));
