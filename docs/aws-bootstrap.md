@@ -112,6 +112,12 @@ Roles Anywhere初回利用に必要な`AWSServiceRoleForRolesAnywhere`は、Clou
 
 同日の実デプロイでは、SQSから記事処理LambdaへのEvent Source Mapping作成時に、CloudFormation実行Roleの`lambda:CreateEventSourceMapping`不足を検出した。関数ARN用の`lambda:*`だけではEvent Source Mapping ARNを対象にできないため、Mappingの作成・参照・更新・削除を専用ARNへ追加した。stackは`UPDATE_ROLLBACK_COMPLETE`まで復旧しており、修正後の再デプロイ結果は完了後に追記する。
 
+## 実環境デプロイ完了記録（2026-11-22 JST）
+
+Event Source Mapping権限を含む`CuratedzDeploymentAccess`を管理用プロファイルで更新し、専用toolkitは変更なしであることを確認した。その後、main commit `6098ace`のCI、Runtime images、Deployがすべて成功し、`Curatedz` stackは`UPDATE_COMPLETE`となった。
+
+実環境ではRoles AnywhereのTrust Anchor、Profile、`Curatedz-HomeSync` Role、S3読み取りPolicyが作成済みである。SQSから記事処理LambdaへのEvent Source Mappingは`Enabled`、batch size 5、maximum concurrency 2であり、Lambdaのreserved concurrencyは設定していない。旧方式の`Curatedz-HomeSync` IAM Userが存在しないことも確認した。Kubernetes側へのworkload証明書配置、Roles Anywhere認証によるS3同期、OpenSearchへの投入確認は後続作業とする。
+
 ## テンプレート保守
 
 専用toolkitはaws-cdk CLI 2.1146.1の公式bootstrapを元に、DeploymentActionRoleとCloudFormationExecutionRoleを制限したもの。
