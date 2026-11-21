@@ -67,7 +67,11 @@ CDKは`Curatedz-HomeSync` IAM Role、Roles Anywhere Trust Anchor/Profile、permi
 umask 077
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out HOME_SYNC_CA_DIR/ca-key.pem
 openssl req -x509 -new -sha256 -days 3650 -key HOME_SYNC_CA_DIR/ca-key.pem \
-  -subj '/CN=curatedz-home-sync-ca' -out HOME_SYNC_CA_DIR/ca-cert.pem
+  -subj '/CN=curatedz-home-sync-ca' \
+  -addext 'basicConstraints=critical,CA:TRUE' \
+  -addext 'keyUsage=critical,keyCertSign,cRLSign' \
+  -addext 'subjectKeyIdentifier=hash' \
+  -out HOME_SYNC_CA_DIR/ca-cert.pem
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out HOME_SYNC_CA_DIR/workload-key.pem
 openssl req -new -sha256 -key HOME_SYNC_CA_DIR/workload-key.pem \
   -subj '/CN=curatedz-home-sync' -out HOME_SYNC_CA_DIR/workload.csr
@@ -75,7 +79,10 @@ openssl x509 -req -sha256 -days 397 -in HOME_SYNC_CA_DIR/workload.csr \
   -CA HOME_SYNC_CA_DIR/ca-cert.pem -CAkey HOME_SYNC_CA_DIR/ca-key.pem -CAcreateserial \
   -extfile <(printf 'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=clientAuth\n') \
   -out HOME_SYNC_CA_DIR/workload-cert.pem
+openssl verify -CAfile HOME_SYNC_CA_DIR/ca-cert.pem HOME_SYNC_CA_DIR/workload-cert.pem
 ```
+
+Roles AnywhereはTrust AnchorのCA証明書に`basicConstraints = critical, CA:TRUE`を要求する。単に`openssl req -x509`しただけの証明書は、署名検証に成功してもTrust Anchor作成時に`Incorrect basic constraints for CA certificate`で拒否されるため、上記拡張を省略しない。
 
 AWSマネジメントコンソールでParameter Storeを開き、同じリージョンにStandard/Stringの`/curatedz/home-sync/ca-certificate`を作成して、公開情報である`ca-cert.pem`のPEM全文を設定する。SecureStringにはしない。CloudFormationは`AWS::SSM::Parameter::Value<String>`として解決するため、値はGitHub Actionsへ渡らずCIログにも出ない。
 
