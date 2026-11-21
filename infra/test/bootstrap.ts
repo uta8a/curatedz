@@ -12,9 +12,10 @@ test('GitHub信頼とCloudFormation権限を専用スコープへ限定する', 
   assert.equal(trust.Condition.StringEquals['token.actions.githubusercontent.com:aud'], 'sts.amazonaws.com');
   const execution = access.Resources.ExecutionPolicy.Properties.PolicyDocument.Statement;
   const bootstrapVersion = execution.find((entry: { Action: string[] }) => entry.Action.includes('ssm:GetParameters'));
-  assert.deepEqual(bootstrapVersion.Resource, {
-    'Fn::Sub': 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cdk-bootstrap/curatedz/version',
-  });
+  assert.deepEqual(bootstrapVersion.Resource, [
+    { 'Fn::Sub': 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cdk-bootstrap/curatedz/version' },
+    { 'Fn::Sub': 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/curatedz/home-sync/ca-certificate' },
+  ]);
   const creation = execution.find((entry: { Action: string[] }) => entry.Action.includes('iam:CreateRole'));
   assert.ok(creation.Condition.StringEquals['iam:PermissionsBoundary']);
   const managedPolicy = execution.find((entry: { Action: string[] }) => entry.Action.includes('iam:CreatePolicy'));
@@ -34,19 +35,20 @@ test('GitHub信頼とCloudFormation権限を専用スコープへ限定する', 
     managedPolicy.Resource['Fn::Sub'],
     'arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/Curatedz-*',
   );
-  const userCreation = execution.find((entry: { Action: string[] }) => entry.Action.includes('iam:CreateUser'));
-  assert.deepEqual(userCreation.Action, ['iam:CreateUser', 'iam:PutUserPermissionsBoundary']);
-  assert.equal(
-    userCreation.Condition.StringEquals['iam:PermissionsBoundary']['Fn::Sub'],
-    'arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/CuratedzRuntimeBoundary',
-  );
+  assert.ok(!JSON.stringify(execution).includes('iam:CreateUser'));
   const userManagement = execution.find((entry: { Action: string[] }) => entry.Action.includes('iam:GetUser'));
   assert.ok(!userManagement.Action.includes('iam:CreateAccessKey'));
-  const userAttachment = execution.find((entry: { Action: string[] }) => entry.Action.includes('iam:AttachUserPolicy'));
+  const userAttachment = execution.find((entry: { Action: string[] }) => entry.Action.includes('iam:DetachUserPolicy'));
+  assert.ok(!userAttachment.Action.includes('iam:AttachUserPolicy'));
   assert.equal(
     userAttachment.Condition.ArnLike['iam:PolicyARN']['Fn::Sub'],
     'arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/Curatedz-*',
   );
+  const roleAttachment = execution.find((entry: { Action: string[] }) => entry.Action.includes('iam:AttachRolePolicy'));
+  assert.ok(JSON.stringify(roleAttachment.Condition).includes('policy/Curatedz-*'));
+  const rolesAnywhere = execution.find((entry: { Action: string[] }) => entry.Action.includes('rolesanywhere:CreateTrustAnchor'));
+  assert.ok(rolesAnywhere.Action.includes('rolesanywhere:CreateProfile'));
+  assert.ok(JSON.stringify(rolesAnywhere.Resource).includes('rolesanywhere:${AWS::Region}:${AWS::AccountId}:trust-anchor/*'));
   const listing = execution.find((entry: { Action: string[] }) => entry.Action.includes('logs:DescribeLogGroups'));
   assert.equal(listing.Resource, '*');
   assert.deepEqual(listing.Condition.StringEquals['aws:RequestedRegion'], { Ref: 'AWS::Region' });

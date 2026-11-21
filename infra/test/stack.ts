@@ -61,15 +61,32 @@ test('非公開保存、定期実行、DLQ、最小権限を構成する', () =>
   assert.ok(managed.includes('article-content/v1/'));
   assert.ok(managed.includes('s3:GetObject'));
   assert.ok(!managed.includes('s3:PutObject'));
-  template.resourceCountIs('AWS::IAM::User', 1);
-  template.hasResourceProperties('AWS::IAM::User', {
-    UserName: 'Curatedz-HomeSync',
+  template.resourceCountIs('AWS::IAM::User', 0);
+  template.hasResourceProperties('AWS::IAM::Role', {
+    RoleName: 'Curatedz-HomeSync',
     PermissionsBoundary: Match.anyValue(),
+    MaxSessionDuration: 3600,
   });
   template.hasResourceProperties('AWS::IAM::ManagedPolicy', {
-    Users: [Match.anyValue()],
+    Roles: [Match.anyValue()],
   });
   template.resourceCountIs('AWS::IAM::AccessKey', 0);
+  template.hasResourceProperties('AWS::RolesAnywhere::TrustAnchor', {
+    Name: 'Curatedz-HomeSync', Enabled: true,
+    Source: {
+      SourceType: 'CERTIFICATE_BUNDLE',
+      SourceData: { X509CertificateData: { Ref: 'HomeSyncCaCertificate' } },
+    },
+  });
+  template.hasResourceProperties('AWS::RolesAnywhere::Profile', {
+    Name: 'Curatedz-HomeSync', Enabled: true, DurationSeconds: 3600,
+    RoleArns: [Match.anyValue()],
+  });
+  const roles = JSON.stringify(template.findResources('AWS::IAM::Role'));
+  assert.ok(roles.includes('rolesanywhere.amazonaws.com'));
+  assert.ok(roles.includes('aws:SourceArn'));
+  assert.ok(roles.includes('aws:SourceAccount'));
+  assert.ok(roles.includes('aws:PrincipalTag/x509Subject/CN'));
   const alarms = JSON.stringify(template.findResources('AWS::CloudWatch::Alarm'));
   assert.ok(alarms.includes('ApproximateNumberOfMessagesVisible'));
   assert.ok(alarms.includes('ApproximateAgeOfOldestMessage'));

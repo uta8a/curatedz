@@ -49,7 +49,7 @@ AWS から自宅環境への接続は作らない。同期 worker が S3 を Pul
 Collector と Processor は分け、フィードの部分失敗と本文サイトの失敗を互いに波及させない。
 本文抽出の再試行やバージョン更新は、RSS を再取得せずに行えるようにする。
 
-自宅同期のAWS principalはCDKで`Curatedz-HomeSync` IAM Userとして作成し、同期対象prefixだけを読み取れるManaged Policyとpermissions boundaryを関連付ける。CDK、CloudFormation Output、GitHub ActionsはAccess Keyを作成・取得・出力しない。デプロイ後に人間がAWSマネジメントコンソールでAccess Keyを発行し、Secret Access Keyを一度だけ確認してGit外のKubernetes Secretへ渡す。
+自宅同期のAWS principalはCDKでIAM Roles Anywhere用の`Curatedz-HomeSync` Roleとして作成し、同期対象prefixだけを読み取れるManaged Policyとpermissions boundaryを関連付ける。外部CAの公開証明書をTrust Anchorへ登録し、`CN=curatedz-home-sync`のend-entity証明書だけがProfile経由でRoleを引き受けられるよう、trust anchor ARN、AWS account、証明書CNを信頼条件にする。Podは`aws_signing_helper`の`credential_process`から有効期間1時間のSTS認証情報を取得し、IAM Userと長期Access Keyは作成しない。CA秘密鍵とworkload秘密鍵はCDK、GitHub Actions、CloudFormation Output、Gitに渡さない。
 
 ## データ契約
 
@@ -168,7 +168,7 @@ visibility timeout は Lambda timeout の 6 倍以上、redrive 後の DLQ 保�
 同期 worker は Rust で実装し、共通の S3/OpenSearch adapter を CLI と CronJob から利用する。
 checkpoint は Kubernetes Secret ではなく、専用 S3 prefix または永続 volume に条件付き保存する。単一 CronJob は `concurrencyPolicy: Forbid` とし、重複起動時も generation と article ID によって冪等にする。
 
-同期用IAM Userにはコンソールログイン用passwordを設定せず、Access KeyはCDK管理外とする。ローテーション時は新しいKeyをKubernetes Secretへ反映して同期成功を確認してから旧Keyを無効化・削除する。Secret Access Keyを失った場合は再表示できると仮定せず、新しいKeyへ交換する。
+同期用証明書と秘密鍵はGit外のKubernetes Secretへ格納する。workload証明書の更新時は新しい証明書を反映して同期成功を確認してから旧証明書を失効させる。秘密鍵の漏えい時は証明書を失効し、Trust AnchorにCRLを関連付けるかCAを交換する。CA秘密鍵はクラスタへ配布しない。
 
 OpenSearch の `_id` は article ID とし、Bulk API の index/upsert を利用する。
 RSS と Content の checkpoint は Bulk 応答で全 item が成功した後だけ進め、部分失敗 item のみ再試行する。

@@ -57,19 +57,43 @@ mise exec -- npm run cdk -- deploy Curatedz
 `-c synthOnly=true` はテストfixtureをアセットにした構造検証専用。デプロイには使わない。
 通常のCDKアプリは実際のLinux ARM64 ELFがない場合に失敗する。
 
-## 自宅同期用Access Keyの発行
+## 自宅同期用IAM Roles Anywhereの準備
 
-CDKは`Curatedz-HomeSync` IAM User、permissions boundary、S3読み取り専用Managed Policyを作成するが、Access Keyは作成しない。GitHub Actions、CloudFormation Output、CIログにAccess Key IDやSecret Access Keyを出力しない。
+CDKは`Curatedz-HomeSync` IAM Role、Roles Anywhere Trust Anchor/Profile、permissions boundary、S3読み取り専用Managed Policyを作成する。IAM UserとAccess Keyは作成しない。CA秘密鍵とworkload秘密鍵はAWS、GitHub Actions、CIログ、Gitへ渡さない。
 
-デプロイ成功後、人間がAWSマネジメントコンソールで次を実施する。
+最初のデプロイ前に、ネットワークへ接続しない管理端末でCAとworkload証明書を作る。以下の出力先はownerだけが読めるGit外のディレクトリとし、実際のパスへ置き換える。
 
-1. CloudFormationの`Curatedz`スタックで`BucketName`、`SyncUserName`、`SyncReadPolicyArn`出力を確認する。
-2. IAMのUsersから`Curatedz-HomeSync`を開き、permissions boundaryと同期用Managed Policyが関連付いていることを確認する。
-3. Security credentialsのAccess keysからCreate access keyを選び、ユースケースはAWS外で動くworkloadとして作成する。
-4. 作成完了画面でAccess Key IDとSecret Access Keyを一度だけ確認し、Git、チャット、CIログ、shell historyへ保存せず、手元から`curatedz-aws` Kubernetes Secretへ設定する。
-5. Secret Access Keyを閉じた後に再表示できるとは扱わない。紛失時は新しいKeyを作成し、同期確認後に古いKeyを無効化・削除する。
+```sh
+umask 077
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out HOME_SYNC_CA_DIR/ca-key.pem
+openssl req -x509 -new -sha256 -days 3650 -key HOME_SYNC_CA_DIR/ca-key.pem \
+  -subj '/CN=curatedz-home-sync-ca' -out HOME_SYNC_CA_DIR/ca-cert.pem
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out HOME_SYNC_CA_DIR/workload-key.pem
+openssl req -new -sha256 -key HOME_SYNC_CA_DIR/workload-key.pem \
+  -subj '/CN=curatedz-home-sync' -out HOME_SYNC_CA_DIR/workload.csr
+openssl x509 -req -sha256 -days 397 -in HOME_SYNC_CA_DIR/workload.csr \
+  -CA HOME_SYNC_CA_DIR/ca-cert.pem -CAkey HOME_SYNC_CA_DIR/ca-key.pem -CAcreateserial \
+  -extfile <(printf 'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=clientAuth\n') \
+  -out HOME_SYNC_CA_DIR/workload-cert.pem
+```
 
-IAM Userにはコンソールpasswordを設定しない。Keyローテーション中を除き有効なAccess Keyは1本とし、未使用期間と最終利用サービスをIAMコンソールで確認する。
+AWSマネジメントコンソールでParameter Storeを開き、同じリージョンにStandard/Stringの`/curatedz/home-sync/ca-certificate`を作成して、公開情報である`ca-cert.pem`のPEM全文を設定する。SecureStringにはしない。CloudFormationは`AWS::SSM::Parameter::Value<String>`として解決するため、値はGitHub Actionsへ渡らずCIログにも出ない。
+
+bootstrap更新後にCDKをデプロイし、CloudFormationの`Curatedz`スタックで`BucketName`、`SyncRoleArn`、`SyncTrustAnchorArn`、`SyncProfileArn`を確認する。IAM Roleの権限が同期対象S3 prefixの`GetObject`と`ListBucket`だけで、信頼条件にtrust anchor ARN、account、`CN=curatedz-home-sync`があることを確認する。
+
+以前の構成をデプロイ済みの場合、`Curatedz-HomeSync` IAM UserにはRetain policyが設定されているため、スタック更新後も権限を外した状態で残る。Roles Anywhereで同期成功を確認し、Access Keyが存在しないことを確認してから、AWSマネジメントコンソールでこの旧Userを削除する。Roleと同名なので、削除対象の種類がUserであることを必ず確認する。
+
+Podではworkload証明書と秘密鍵をread-only Secretとしてmountし、次の共有AWS configをmountする。ARNとリージョンはCloudFormation出力へ置き換える。
+
+```ini
+[default]
+region = ap-northeast-1
+credential_process = /usr/local/bin/aws_signing_helper credential-process --certificate /var/run/curatedz-aws/tls.crt --private-key /var/run/curatedz-aws/tls.key --trust-anchor-arn TRUST_ANCHOR_ARN --profile-arn PROFILE_ARN --role-arn ROLE_ARN
+```
+
+`AWS_CONFIG_FILE`をこのファイルへ向け、`AWS_SDK_LOAD_CONFIG=1`を設定する。Kubernetes Secretには`tls.crt`と`tls.key`だけを投入し、CA秘密鍵、Access Key、AWS session credentialは入れない。証明書の作成・投入コマンドは値がshell historyやCIログへ残らない管理端末上で実行する。
+
+workload証明書は期限前に新しい鍵で再発行し、Secret更新後の同期成功を確認してから旧証明書を失効する。漏えい時に即時失効できるよう、本番利用前にCRLの保管・更新手順を用意する。それまではCA秘密鍵をオフライン保管し、漏えい時はCAとTrust Anchorを交換する。
 
 ## 手動確認
 
