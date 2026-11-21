@@ -110,6 +110,8 @@ GitHubの変数3つも設定済み。最終状態・再実行結果はPRの検�
 
 Roles Anywhere初回利用に必要な`AWSServiceRoleForRolesAnywhere`は、CloudFormation実行Roleへ汎用の`iam:CreateServiceLinkedRole`を追加せず、管理者が`rolesanywhere.amazonaws.com`を指定して一度だけ作成した。アプリstackの最終デプロイ結果とKubernetes側の同期確認は、完了後に運用記録へ追記する。
 
+同日の実デプロイでは、SQSから記事処理LambdaへのEvent Source Mapping作成時に、CloudFormation実行Roleの`lambda:CreateEventSourceMapping`不足を検出した。関数ARN用の`lambda:*`だけではEvent Source Mapping ARNを対象にできないため、Mappingの作成・参照・更新・削除を専用ARNへ追加した。stackは`UPDATE_ROLLBACK_COMPLETE`まで復旧しており、修正後の再デプロイ結果は完了後に追記する。
+
 ## テンプレート保守
 
 専用toolkitはaws-cdk CLI 2.1146.1の公式bootstrapを元に、DeploymentActionRoleとCloudFormationExecutionRoleを制限したもの。
