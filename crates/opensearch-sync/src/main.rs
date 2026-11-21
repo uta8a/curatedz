@@ -12,8 +12,13 @@ use std::{
     path::{Path, PathBuf},
     process::ExitCode,
 };
+use tracing_subscriber::EnvFilter;
 
 const ALIAS: &str = "curatedz-articles";
+
+fn log_filter() -> EnvFilter {
+    EnvFilter::new("info,aws_config=warn")
+}
 
 #[derive(Parser)]
 struct Args {
@@ -415,6 +420,7 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 async fn main() -> ExitCode {
     tracing_subscriber::fmt()
         .json()
+        .with_env_filter(log_filter())
         .with_writer(std::io::stderr)
         .init();
     match run(Args::parse()).await {
@@ -429,10 +435,65 @@ async fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        io::Write,
+        sync::{Arc, Mutex},
+    };
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
         net::TcpListener,
     };
+    use tracing_subscriber::fmt::MakeWriter;
+
+    #[derive(Clone, Default)]
+    struct LogBuffer(Arc<Mutex<Vec<u8>>>);
+
+    struct LogWriter(LogBuffer);
+
+    impl Write for LogWriter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> MakeWriter<'a> for LogBuffer {
+        type Writer = LogWriter;
+
+        fn make_writer(&'a self) -> Self::Writer {
+            LogWriter(self.clone())
+        }
+    }
+
+    #[test]
+    fn aws_credential_info_logs_are_suppressed() {
+        let output = LogBuffer::default();
+        let subscriber = tracing_subscriber::fmt()
+            .json()
+            .with_env_filter(log_filter())
+            .with_writer(output.clone())
+            .finish();
+
+        tracing::subscriber::with_default(subscriber, || {
+            tracing::info!(
+                target: "aws_config::profile::credentials",
+                creds = "temporary-credential-marker"
+            );
+            tracing::warn!(
+                target: "aws_config::profile::credentials",
+                message = "credential-warning-marker"
+            );
+        });
+
+        let bytes = output.0.lock().unwrap().clone();
+        let logs = String::from_utf8(bytes).unwrap();
+        assert!(!logs.contains("temporary-credential-marker"));
+        assert!(logs.contains("credential-warning-marker"));
+    }
 
     #[test]
     fn document_update_preserves_content_and_discovery_aggregation() {

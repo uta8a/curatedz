@@ -100,6 +100,8 @@ credential_process = /usr/local/bin/aws_signing_helper credential-process --cert
 
 `AWS_CONFIG_FILE`をこのファイルへ向け、`AWS_SDK_LOAD_CONFIG=1`を設定する。Kubernetes Secretには`tls.crt`と`tls.key`だけを投入し、CA秘密鍵、Access Key、AWS session credentialは入れない。証明書の作成・投入コマンドは値がshell historyやCIログへ残らない管理端末上で実行する。
 
+同期プロセスはAWS SDKの`aws_config` targetをWARN以上に制限する。INFOログにはcredential processが返した一時Access Key IDが含まれる場合があるため、この制限を緩和しない。同期確認時もログ本文を表示する前に、Access Key ID、秘密鍵、署名付きURL、Authorization headerのパターンを検査する。
+
 workload証明書は期限前に新しい鍵で再発行し、Secret更新後の同期成功を確認してから旧証明書を失効する。漏えい時に即時失効できるよう、本番利用前にCRLの保管・更新手順を用意する。それまではCA秘密鍵をオフライン保管し、漏えい時はCAとTrust Anchorを交換する。
 
 ## 手動確認
