@@ -24,9 +24,10 @@ test('非公開保存、定期実行、DLQ、最小権限を構成する', () =>
   template.hasResourceProperties('AWS::Lambda::EventSourceMapping', {
     BatchSize: 5,
     FunctionResponseTypes: ['ReportBatchItemFailures'],
+    ScalingConfig: { MaximumConcurrency: 2 },
   });
   template.hasResourceProperties('AWS::Lambda::Function', {
-    ReservedConcurrentExecutions: 1,
+    ReservedConcurrentExecutions: Match.absent(),
     Timeout: 60,
   });
   template.hasResourceProperties('AWS::Lambda::Function', {

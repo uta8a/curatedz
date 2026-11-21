@@ -135,13 +135,13 @@ export class CollectorStack extends cdk.Stack {
       code: props.processorCode,
       memorySize: 1024,
       timeout: cdk.Duration.minutes(1),
-      reservedConcurrentExecutions: 1,
       logGroup: processorLogs,
       environment: { CURATEDZ_BUCKET: bucket.bucketName },
     });
     processor.addEventSource(new lambdaEvents.SqsEventSource(articleRequests, {
       batchSize: 5,
       reportBatchItemFailures: true,
+      maxConcurrency: 2,
     }));
     for (const prefix of ['batches/v1/', 'article-requests/v1/', 'article-content/v1/']) {
       processor.addToRolePolicy(new iam.PolicyStatement({

@@ -158,6 +158,7 @@ JavaScript レンダリング、ログイン、paywall 回避は実装しない�
 SQS Standard Queue の少なくとも一回配信を前提にする。
 Lambda event source mapping は部分バッチ応答を有効にし、失敗メッセージだけを再試行する。
 visibility timeout は Lambda timeout の 6 倍以上、redrive 後の DLQ 保持は 14 日とする。
+Processorのスケール上限はSQS event source mappingの`MaximumConcurrency=2`で制限する。関数のreserved concurrencyは、アカウントの未予約同時実行枠を最低10残すAWS制約と小さいquotaが衝突するため使用しない。site単位の間隔制御とS3 CASによる競合解決は、複数invocationでも成立させる。
 
 各メッセージで current state を読み、同一入力・同一 processor version の成功済み record があれば成功として終了する。
 競合更新に敗れた処理は winner を再読込し、同等以上なら成功、そうでなければ有限回だけ再計画する。
