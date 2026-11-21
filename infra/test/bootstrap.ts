@@ -55,6 +55,22 @@ test('GitHub信頼とCloudFormation権限を専用スコープへ限定する', 
     'scheduler.amazonaws.com',
     'rolesanywhere.amazonaws.com',
   ]);
+  const eventSourceMapping = execution.find((entry: { Action: string[] }) =>
+    entry.Action.includes('lambda:CreateEventSourceMapping'));
+  assert.deepEqual(eventSourceMapping.Action, [
+    'lambda:CreateEventSourceMapping',
+    'lambda:GetEventSourceMapping',
+    'lambda:UpdateEventSourceMapping',
+    'lambda:DeleteEventSourceMapping',
+  ]);
+  assert.equal(
+    eventSourceMapping.Resource['Fn::Sub'],
+    'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:event-source-mapping:*',
+  );
+  const eventSourceMappingList = execution.find((entry: { Action: string[] }) =>
+    entry.Action.includes('lambda:ListEventSourceMappings'));
+  assert.equal(eventSourceMappingList.Resource, '*');
+  assert.deepEqual(eventSourceMappingList.Condition.StringEquals['aws:RequestedRegion'], { Ref: 'AWS::Region' });
   const listing = execution.find((entry: { Action: string[] }) => entry.Action.includes('logs:DescribeLogGroups'));
   assert.equal(listing.Resource, '*');
   assert.deepEqual(listing.Condition.StringEquals['aws:RequestedRegion'], { Ref: 'AWS::Region' });
