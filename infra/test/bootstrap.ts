@@ -34,6 +34,19 @@ test('GitHub信頼とCloudFormation権限を専用スコープへ限定する', 
     managedPolicy.Resource['Fn::Sub'],
     'arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/Curatedz-*',
   );
+  const userCreation = execution.find((entry: { Action: string[] }) => entry.Action.includes('iam:CreateUser'));
+  assert.deepEqual(userCreation.Action, ['iam:CreateUser', 'iam:PutUserPermissionsBoundary']);
+  assert.equal(
+    userCreation.Condition.StringEquals['iam:PermissionsBoundary']['Fn::Sub'],
+    'arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/CuratedzRuntimeBoundary',
+  );
+  const userManagement = execution.find((entry: { Action: string[] }) => entry.Action.includes('iam:GetUser'));
+  assert.ok(!userManagement.Action.includes('iam:CreateAccessKey'));
+  const userAttachment = execution.find((entry: { Action: string[] }) => entry.Action.includes('iam:AttachUserPolicy'));
+  assert.equal(
+    userAttachment.Condition.ArnLike['iam:PolicyARN']['Fn::Sub'],
+    'arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/Curatedz-*',
+  );
   const listing = execution.find((entry: { Action: string[] }) => entry.Action.includes('logs:DescribeLogGroups'));
   assert.equal(listing.Resource, '*');
   assert.deepEqual(listing.Condition.StringEquals['aws:RequestedRegion'], { Ref: 'AWS::Region' });

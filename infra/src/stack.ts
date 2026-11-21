@@ -46,6 +46,11 @@ export class CollectorStack extends cdk.Stack {
         }),
       ],
     });
+    const syncUser = new iam.User(this, 'SyncUser', {
+      userName: 'Curatedz-HomeSync',
+    });
+    syncUser.applyRemovalPolicy(cdk.RemovalPolicy.RETAIN);
+    syncReadPolicy.attachToUser(syncUser);
     const logGroup = new logs.LogGroup(this, 'CollectorLogs', {
       retention: logs.RetentionDays.ONE_MONTH,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
@@ -207,5 +212,6 @@ export class CollectorStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'ArticleRequestQueue', { value: articleRequests.queueUrl });
     new cdk.CfnOutput(this, 'ArticleFailureQueue', { value: articleFailures.queueUrl });
     new cdk.CfnOutput(this, 'SyncReadPolicyArn', { value: syncReadPolicy.managedPolicyArn });
+    new cdk.CfnOutput(this, 'SyncUserName', { value: syncUser.userName });
   }
 }
