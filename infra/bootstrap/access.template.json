@@ -258,6 +258,24 @@
             {
               "Effect": "Allow",
               "Action": [
+                "iam:CreatePolicy",
+                "iam:GetPolicy",
+                "iam:DeletePolicy",
+                "iam:CreatePolicyVersion",
+                "iam:GetPolicyVersion",
+                "iam:DeletePolicyVersion",
+                "iam:ListPolicyVersions",
+                "iam:SetDefaultPolicyVersion",
+                "iam:TagPolicy",
+                "iam:UntagPolicy"
+              ],
+              "Resource": {
+                "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/Curatedz-*"
+              }
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
                 "iam:PassRole"
               ],
               "Resource": {

@@ -17,6 +17,23 @@ test('GitHub信頼とCloudFormation権限を専用スコープへ限定する', 
   });
   const creation = execution.find((entry: { Action: string[] }) => entry.Action.includes('iam:CreateRole'));
   assert.ok(creation.Condition.StringEquals['iam:PermissionsBoundary']);
+  const managedPolicy = execution.find((entry: { Action: string[] }) => entry.Action.includes('iam:CreatePolicy'));
+  assert.deepEqual(managedPolicy.Action, [
+    'iam:CreatePolicy',
+    'iam:GetPolicy',
+    'iam:DeletePolicy',
+    'iam:CreatePolicyVersion',
+    'iam:GetPolicyVersion',
+    'iam:DeletePolicyVersion',
+    'iam:ListPolicyVersions',
+    'iam:SetDefaultPolicyVersion',
+    'iam:TagPolicy',
+    'iam:UntagPolicy',
+  ]);
+  assert.equal(
+    managedPolicy.Resource['Fn::Sub'],
+    'arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/Curatedz-*',
+  );
   const listing = execution.find((entry: { Action: string[] }) => entry.Action.includes('logs:DescribeLogGroups'));
   assert.equal(listing.Resource, '*');
   assert.deepEqual(listing.Condition.StringEquals['aws:RequestedRegion'], { Ref: 'AWS::Region' });
