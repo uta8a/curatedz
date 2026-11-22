@@ -4,7 +4,7 @@
 
 ```mermaid
 flowchart TD
-    Config[Git管理のYAML設定] --> Core[Rust共通処理]
+    Config[S3の非公開YAML設定] --> Core[Rust共通処理]
     CLI[CLI] --> Core
     Scheduler[EventBridge Scheduler] --> Lambda[単一Lambda ARM64]
     Lambda --> Core
@@ -51,7 +51,11 @@ fixtures/                  RSS / Atom / 非UTF-8 / 壊れた入力
 .github/                   CIと開発基盤の検証
 ```
 
-設定はGitを正としてLambdaバイナリへ埋め込む。変更時は再ビルド・再デプロイする。
+実運用のテーマ・情報源設定は、公開リポジトリの実装と分離して非公開S3オブジェクト
+`config/v1/topics.yaml`を正とする。Lambdaは起動時にこのオブジェクトを取得し、収集開始前に
+未知フィールド・ID・URL・参照整合性を検証する。設定変更だけなら再ビルド・再デプロイは不要だが、
+設定は実行環境の初期化時に読むため、既存環境が再利用される間は旧設定のままとなる。
+リポジトリの`config/topics.yaml`は形式確認用の公開例であり、実運用データではない。
 SSMは使わず、認証が不要なRSS取得にSecrets Manager権限を追加しない。
 情報源URLは設定由来の信頼済み入力だが、認証情報付きURLを拒否し、ログはsource_idを使う。
 

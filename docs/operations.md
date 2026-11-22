@@ -31,7 +31,9 @@ mise exec -- aws sts get-caller-identity
 
 ## ビルドとデプロイ
 
-config/topics.yamlを編集し、設定検証とテストを通してからLambdaをビルドする。設定はバイナリに埋め込まれる。
+`config/topics.yaml`は形式確認用の公開例である。実運用設定はローカルのGit管理外で作成し、
+CLIで検証した後にS3の`config/v1/topics.yaml`へアップロードする。設定値やフィードURL一覧を
+Git、CIログ、CloudFormation templateへ含めない。
 
 ```sh
 mise install
@@ -51,6 +53,17 @@ mise exec -- npm run cdk -- bootstrap aws://ACCOUNT_ID/ap-northeast-1 \
 mise exec -- npm run cdk -- diff Curatedz
 mise exec -- npm run cdk -- deploy Curatedz
 ```
+
+実運用設定の検証と反映は次のように行う。`PRIVATE_CONFIG`はリポジトリ外の絶対パスにする。
+
+```sh
+mise exec -- cargo run -p curatedz-cli -- --config "$PRIVATE_CONFIG" --validate
+mise exec -- aws s3 cp "$PRIVATE_CONFIG" "s3://$CURATEDZ_BUCKET/config/v1/topics.yaml" \
+  --sse AES256 --content-type application/yaml
+```
+
+S3バケットは非公開・バージョニング有効である。誤更新時はオブジェクトversionから復旧する。
+Lambdaは設定キーだけに`GetObject`でき、設定の書き込み権限を持たない。
 
 リージョンを変える場合はbootstrap先とAWS_REGIONを揃える。
 初期デプロイではSchedulerはDISABLED。出力のBucketName、FunctionName、DLQ URL、ErrorAlarmNameを記録する。
