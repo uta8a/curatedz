@@ -7,7 +7,6 @@ use axum::{
     routing::{get, put},
 };
 use chrono::{Days, NaiveDate, Utc};
-use curatedz_core::config::Config;
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header, jwk::JwkSet};
 use serde::{Deserialize, Deserializer, Serialize, de};
 use serde_json::{Value, json};
@@ -25,7 +24,6 @@ struct AppState {
     audience: String,
     jwks_url: String,
     jwks: Arc<RwLock<Option<(Instant, JwkSet)>>>,
-    topics: Arc<Vec<TopicOption>>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -192,8 +190,65 @@ fn app(state: AppState) -> Router {
         .with_state(state)
 }
 
-async fn topics(State(state): State<AppState>) -> Json<Vec<TopicOption>> {
-    Json(state.topics.as_ref().clone())
+fn topic_name(id: &str) -> &str {
+    match id {
+        "ai-ml" => "AI・機械学習",
+        "security" => "セキュリティ",
+        "sre-observability" => "SRE・可観測性",
+        "cloud-platform" => "クラウド基盤",
+        "cloud-native" => "Cloud Native",
+        "software-engineering" => "ソフトウェア開発",
+        "programming-languages" => "言語・ランタイム",
+        "performance" => "パフォーマンス",
+        "hardware-systems" => "ハードウェア・システム",
+        "aws-ecosystem" => "AWS活用・ビジネス",
+        "personal-watch" => "個人ウォッチ",
+        "local-news" => "広島・地域情報",
+        "fitness-health" => "筋トレ・スポーツ医学",
+        "running" => "ランニング",
+        "guitar" => "ギター",
+        _ => id,
+    }
+}
+
+fn topics_from_value(value: &Value) -> Result<Vec<TopicOption>, ()> {
+    value
+        .pointer("/aggregations/topics/buckets")
+        .and_then(Value::as_array)
+        .ok_or(())?
+        .iter()
+        .map(|bucket| {
+            let id = bucket.get("key").and_then(Value::as_str).ok_or(())?;
+            Ok(TopicOption {
+                id: id.into(),
+                name: topic_name(id).into(),
+            })
+        })
+        .collect()
+}
+
+async fn topics(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<TopicOption>>, (StatusCode, String)> {
+    let response = state
+        .http
+        .post(format!("{}/curatedz-articles/_search", state.opensearch))
+        .json(&json!({
+            "size": 0,
+            "aggs": {"topics": {"terms": {"field": "topic_ids", "size": 100}}}
+        }))
+        .send()
+        .await
+        .map_err(|_| (StatusCode::BAD_GATEWAY, "topicを取得できません".into()))?;
+    let value: Value = response
+        .error_for_status()
+        .map_err(|_| (StatusCode::BAD_GATEWAY, "topicを取得できません".into()))?
+        .json()
+        .await
+        .map_err(|_| (StatusCode::BAD_GATEWAY, "topic応答が不正です".into()))?;
+    topics_from_value(&value)
+        .map(Json)
+        .map_err(|_| (StatusCode::BAD_GATEWAY, "topic応答が不正です".into()))
 }
 
 fn valid_article_id(value: &str) -> bool {
@@ -541,15 +596,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let team = std::env::var("CF_ACCESS_TEAM_DOMAIN")?
         .trim_end_matches('/')
         .to_string();
-    let config = Config::parse(include_str!("../../../config/topics.yaml"))?;
-    let topics = config
-        .topics
-        .into_iter()
-        .map(|topic| TopicOption {
-            id: topic.id,
-            name: topic.name,
-        })
-        .collect();
     let state = AppState {
         http: reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
@@ -561,7 +607,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         audience: std::env::var("CF_ACCESS_AUD")?,
         jwks_url: format!("https://{team}/cdn-cgi/access/certs"),
         jwks: Arc::new(RwLock::new(None)),
-        topics: Arc::new(topics),
     };
     let app = app(state);
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
@@ -593,11 +638,21 @@ mod tests {
             audience: "audience".into(),
             jwks_url: "https://example.cloudflareaccess.com/cdn-cgi/access/certs".into(),
             jwks: Arc::new(RwLock::new(None)),
-            topics: Arc::new(vec![TopicOption {
-                id: "software-engineering".into(),
-                name: "Software Engineering".into(),
-            }]),
         }
+    }
+
+    #[test]
+    fn topic_aggregation_is_converted_to_display_options() {
+        let topics = topics_from_value(&json!({
+            "aggregations": {"topics": {"buckets": [
+                {"key": "security", "doc_count": 12},
+                {"key": "unknown-topic", "doc_count": 1}
+            ]}}
+        }))
+        .unwrap();
+        assert_eq!(topics[0].id, "security");
+        assert_eq!(topics[0].name, "セキュリティ");
+        assert_eq!(topics[1].name, "unknown-topic");
     }
 
     #[test]
