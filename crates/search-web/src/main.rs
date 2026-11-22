@@ -6,9 +6,9 @@ use axum::{
     response::{Html, IntoResponse, Response},
     routing::get,
 };
-use chrono::NaiveDate;
+use chrono::{Days, NaiveDate, Utc};
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header, jwk::JwkSet};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de};
 use serde_json::{Value, json};
 use std::{
     sync::Arc,
@@ -56,10 +56,25 @@ struct SearchQuery {
     #[serde(default)]
     q: String,
     source: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_date")]
     date_from: Option<NaiveDate>,
+    #[serde(default, deserialize_with = "deserialize_optional_date")]
     date_to: Option<NaiveDate>,
     page: Option<u32>,
     size: Option<u32>,
+}
+
+fn deserialize_optional_date<'de, D>(deserializer: D) -> Result<Option<NaiveDate>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<String>::deserialize(deserializer)?;
+    match value.as_deref().map(str::trim) {
+        None | Some("") => Ok(None),
+        Some(value) => NaiveDate::parse_from_str(value, "%Y-%m-%d")
+            .map(Some)
+            .map_err(de::Error::custom),
+    }
 }
 
 #[derive(Serialize)]
@@ -204,6 +219,14 @@ async fn search(
 }
 
 fn search_body(query: SearchQuery) -> Result<Value, (StatusCode, String)> {
+    search_body_on(query, Utc::now().date_naive())
+}
+
+fn search_body_on(mut query: SearchQuery, today: NaiveDate) -> Result<Value, (StatusCode, String)> {
+    if query.date_from.is_none() && query.date_to.is_none() {
+        query.date_from = today.checked_sub_days(Days::new(6));
+        query.date_to = Some(today);
+    }
     let q = query.q.trim();
     if q.chars().count() > 200 {
         return Err((StatusCode::BAD_REQUEST, "qが不正です".into()));
@@ -450,16 +473,27 @@ mod tests {
             .unwrap_err()
             .0
         };
-        let recent = search_body(SearchQuery {
-            q: String::new(),
-            source: None,
-            date_from: None,
-            date_to: None,
-            page: None,
-            size: None,
-        })
+        let today = NaiveDate::from_ymd_opt(2026, 11, 22).unwrap();
+        let recent = search_body_on(
+            SearchQuery {
+                q: String::new(),
+                source: None,
+                date_from: None,
+                date_to: None,
+                page: None,
+                size: None,
+            },
+            today,
+        )
         .unwrap();
-        assert_eq!(recent.pointer("/query/bool/filter"), Some(&json!([])));
+        assert_eq!(
+            recent.pointer("/query/bool/filter/0/range/published_at/gte"),
+            Some(&json!("2026-11-16"))
+        );
+        assert_eq!(
+            recent.pointer("/query/bool/filter/0/range/published_at/lte"),
+            Some(&json!("2026-11-22"))
+        );
         assert_eq!(
             recent.pointer("/sort/0/published_at/order"),
             Some(&json!("desc"))
@@ -485,6 +519,29 @@ mod tests {
                 Some(NaiveDate::from_ymd_opt(2026, 1, 1).unwrap())
             ),
             StatusCode::BAD_REQUEST
+        );
+    }
+
+    #[test]
+    fn empty_date_query_values_are_treated_as_unspecified() {
+        let query: SearchQuery = serde_json::from_value(json!({
+            "q": "",
+            "source": "",
+            "date_from": "",
+            "date_to": "",
+            "page": 0,
+            "size": 20
+        }))
+        .unwrap();
+
+        assert_eq!(query.date_from, None);
+        assert_eq!(query.date_to, None);
+        assert!(
+            serde_json::from_value::<SearchQuery>(json!({
+                "q": "",
+                "date_from": "2026-02-30"
+            }))
+            .is_err()
         );
     }
 }
