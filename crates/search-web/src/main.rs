@@ -352,6 +352,18 @@ mod tests {
         }
     }
 
+    #[test]
+    fn reader_html_has_accessible_loading_and_empty_states() {
+        let html = include_str!("index.html");
+
+        assert!(html.contains("aria-live=\"polite\""));
+        assert!(html.contains("aria-busy=\"false\""));
+        assert!(html.contains("該当する記事はありません"));
+        assert!(html.contains("ログインの有効期限が切れました"));
+        assert!(html.contains("prefers-reduced-motion"));
+        assert!(html.contains("setDefaultDates()"));
+    }
+
     #[tokio::test]
     async fn health_is_internal_but_ui_and_api_require_access_jwt() {
         let app = app(state());
