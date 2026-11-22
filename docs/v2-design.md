@@ -187,7 +187,7 @@ UI は同じ origin で API を利用するレスポンシブ Web UI とし、�
 
 ### topicフィルタと既読状態
 
-Readerの絞り込みは情報源IDの自由入力ではなく、実運用設定にあるtopicを選択する。同期workerは公開済みmanifestのAssociationを読み、記事ドキュメントの`topic_ids`へ重複なく追加する。過去のAssociationを削除しない既存契約に合わせ、設定からtopicやsourceの関連を外しても過去記事の`topic_ids`は自動削除しない。topicを再分類する場合は、古いtopic IDを残さないようOpenSearchの派生indexを0から再構築する。
+Readerの絞り込みは情報源IDの自由入力ではなく、実運用設定にあるtopicを選択する。同期workerは公開済みmanifestのAssociationを読み、記事ドキュメントの`topic_ids`へ重複なく追加する。過去のAssociationを削除しない既存契約に合わせ、設定からtopicやsourceの関連を外しても過去記事の`topic_ids`は自動削除しない。topicを再分類する場合は、新設定でAssociationを生成した後、source IDと新設定の対応からOpenSearchの派生indexを再投影する。generation 0からのrebuildだけでは過去のAssociationも再適用されるため、旧topic IDの除去にはならない。
 
 Webの`GET /api/topics`は、公開例の設定を埋め込まず、OpenSearchの記事indexに実在する`topic_ids`をterms aggregationで列挙する。既知のtopic IDは安定した表示名へ変換し、未知のIDはID自体を表示名として返す。検索APIの`topic`は`topic_ids`の完全一致filterへ変換する。これにより、非公開の実運用設定とReaderの選択肢が乖離せず、記事がまだ存在しないtopicは空の選択肢として表示されない。
 
