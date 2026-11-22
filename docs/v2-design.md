@@ -187,7 +187,9 @@ UI は同じ origin で API を利用するレスポンシブ Web UI とし、�
 
 ### topicフィルタと既読状態
 
-Readerの絞り込みは情報源IDの自由入力ではなく、Git管理の設定にあるtopicを選択する。同期workerは公開済みmanifestのAssociationを読み、記事ドキュメントの`topic_ids`へ重複なく追加する。過去のAssociationを削除しない既存契約に合わせ、設定からtopicやsourceの関連を外しても過去記事の`topic_ids`は自動削除しない。Webは`GET /api/topics`でtopic IDと表示名を返し、検索APIの`topic`を`topic_ids`の完全一致filterへ変換する。
+Readerの絞り込みは情報源IDの自由入力ではなく、実運用設定にあるtopicを選択する。同期workerは公開済みmanifestのAssociationを読み、記事ドキュメントの`topic_ids`へ重複なく追加する。過去のAssociationを削除しない既存契約に合わせ、設定からtopicやsourceの関連を外しても過去記事の`topic_ids`は自動削除しない。topicを再分類する場合は、古いtopic IDを残さないようOpenSearchの派生indexを0から再構築する。
+
+Webの`GET /api/topics`は、公開例の設定を埋め込まず、OpenSearchの記事indexに実在する`topic_ids`をterms aggregationで列挙する。既知のtopic IDは安定した表示名へ変換し、未知のIDはID自体を表示名として返す。検索APIの`topic`は`topic_ids`の完全一致filterへ変換する。これにより、非公開の実運用設定とReaderの選択肢が乖離せず、記事がまだ存在しないtopicは空の選択肢として表示されない。
 
 既読状態は個人利用の単一ユーザー状態として扱う。記事ドキュメントの`read_at`を検索用の投影とし、`PUT /api/articles/{article_id}/read`で既読、`DELETE /api/articles/{article_id}/read`で未読へ戻す。検索APIは`read=all|unread|read`を受け付け、既定値を`unread`とする。記事リンクを開いた操作も既読更新を行うが、更新失敗時に元記事の閲覧を妨げない。
 
