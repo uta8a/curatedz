@@ -190,6 +190,33 @@ Cloudflare Access policy は人間が Zero Trust 上で作成し、repository �
 API は `Cf-Access-Jwt-Assertion` の署名、issuer、audience、expiry を検証し、Tunnel/Access を迂回した未認証 request も拒否する。
 Tunnel credential、Cloudflare API token、AWS credential は Secret 管理し Git に保存しない。
 
+### 読み取り専用管理画面
+
+運用状態はReaderへ混在させず、同じWeb Serviceの`/admin`と`/api/admin/status`へ分離する。両方にReaderと同じCloudflare Access JWT検証を適用する。初期実装はWebが既に読み取れるOpenSearch情報だけを対象とし、WebへKubernetes API、AWS、S3の権限を追加しない。
+
+管理APIは次のJSON契約を返す。
+
+```json
+{
+  "generated_at": "2026-11-22T00:00:00Z",
+  "search": {
+    "status": "green",
+    "number_of_nodes": 1,
+    "active_primary_shards": 2,
+    "unassigned_shards": 0
+  },
+  "articles": {
+    "total": 10,
+    "latest_published_at": "2026-11-21T12:00:00.000Z",
+    "latest_seen_at": "2026-11-21T13:00:00.000Z"
+  }
+}
+```
+
+`latest_published_at`と`latest_seen_at`は該当値がない場合`null`とする。OpenSearchのcluster healthまたは記事集計の取得・デシリアライズが失敗した場合、推測値や直前値を正常値として返さず、API全体をHTTP 502にする。ブラウザへ内部URL、OpenSearch応答本文、query、認証情報を返さず、画面は取得不能として表示する。
+
+この画面は監視状態の閲覧専用である。同期開始、再構築、index削除、Secret操作などの変更操作は含めない。AWS側の収集成功時刻、S3 generation、情報源別失敗は現在のWeb権限だけでは確実に取得できないため、表示済みと扱わず、将来の明示的な運用状態契約として別に設計する。
+
 ## 可観測性
 
 構造化ログには `run_id` または `message_id`、`article_id`、`source_id`、`stage`、処理版、所要時間、結果 code を含める。
