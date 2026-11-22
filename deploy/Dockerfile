@@ -3,6 +3,7 @@ ARG BIN
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
+COPY config ./config
 RUN cargo build --release --locked --bin "$BIN" && cp "target/release/$BIN" /runtime
 
 FROM debian:bookworm-slim AS signing-helper
