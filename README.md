@@ -53,8 +53,8 @@ CIも同じチェックとLambdaビルドを実行します。
 
 [bootstrap・GitHub Actions設定手順](docs/aws-bootstrap.md) を参照してください。アカウントID・認証情報はダミー値で記載しています。
 
-OIDC認証基盤と専用CDK bootstrapは準備済みです。アプリの実デプロイはGitHub Actionsのmainマージ後に確認します。[AWSセットアップと運用](docs/operations.md) の手順でアカウント・リージョン・認証を用意します。
-Schedulerは初期状態で無効です。手動の収集確認後に有効化します。
+OIDC認証基盤、専用CDK bootstrap、AWSアプリは実環境へデプロイ済みです。自宅KubernetesではCronJobがIAM Roles AnywhereでS3の公開済みデータを差分取得してOpenSearchへ同期し、Cloudflare Tunnel / Access配下のUI/APIから検索できます。[AWSセットアップと運用](docs/operations.md) と [v2設計](docs/v2-design.md) を参照してください。
+新規環境ではSchedulerを無効で初回デプロイし、手動収集を確認してから有効化します。
 S3出力をCLIから使う場合は `cargo run -p curatedz-cli --features aws -- --bucket BUCKET --run-id NAME` を実行します。
 
 ## 保存・制約

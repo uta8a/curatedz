@@ -1,12 +1,13 @@
 use axum::{
     Json, Router,
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     middleware::{self, Next},
     response::{Html, IntoResponse, Response},
-    routing::get,
+    routing::{get, put},
 };
 use chrono::{Days, NaiveDate, Utc};
+use curatedz_core::config::Config;
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header, jwk::JwkSet};
 use serde::{Deserialize, Deserializer, Serialize, de};
 use serde_json::{Value, json};
@@ -24,6 +25,7 @@ struct AppState {
     audience: String,
     jwks_url: String,
     jwks: Arc<RwLock<Option<(Instant, JwkSet)>>>,
+    topics: Arc<Vec<TopicOption>>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -55,13 +57,24 @@ fn validate_token(
 struct SearchQuery {
     #[serde(default)]
     q: String,
-    source: Option<String>,
+    topic: Option<String>,
+    #[serde(default)]
+    read: ReadFilter,
     #[serde(default, deserialize_with = "deserialize_optional_date")]
     date_from: Option<NaiveDate>,
     #[serde(default, deserialize_with = "deserialize_optional_date")]
     date_to: Option<NaiveDate>,
     page: Option<u32>,
     size: Option<u32>,
+}
+
+#[derive(Clone, Copy, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum ReadFilter {
+    All,
+    #[default]
+    Unread,
+    Read,
 }
 
 fn deserialize_optional_date<'de, D>(deserializer: D) -> Result<Option<NaiveDate>, D::Error>
@@ -79,16 +92,25 @@ where
 
 #[derive(Serialize)]
 struct SearchItem {
+    article_id: String,
     title: String,
     url: String,
     excerpt: String,
     published_at: Option<String>,
     source_ids: Vec<String>,
+    topic_ids: Vec<String>,
+    read_at: Option<String>,
 }
 #[derive(Serialize)]
 struct SearchResponse {
     total: u64,
     items: Vec<SearchItem>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct TopicOption {
+    id: String,
+    name: String,
 }
 
 async fn keys(state: &AppState) -> Result<JwkSet, StatusCode> {
@@ -156,6 +178,11 @@ fn app(state: AppState) -> Router {
     let protected = Router::new()
         .route("/", get(index))
         .route("/api/search", get(search))
+        .route("/api/topics", get(topics))
+        .route(
+            "/api/articles/{article_id}/read",
+            put(mark_read).delete(mark_unread),
+        )
         .route("/admin", get(admin))
         .route("/api/admin/status", get(admin_status))
         .route_layer(middleware::from_fn_with_state(state.clone(), access_auth));
@@ -163,6 +190,85 @@ fn app(state: AppState) -> Router {
         .route("/healthz", get(health))
         .merge(protected)
         .with_state(state)
+}
+
+async fn topics(State(state): State<AppState>) -> Json<Vec<TopicOption>> {
+    Json(state.topics.as_ref().clone())
+}
+
+fn valid_article_id(value: &str) -> bool {
+    value
+        .strip_prefix("sha256:")
+        .is_some_and(|hash| hash.len() == 64 && hash.bytes().all(|byte| byte.is_ascii_hexdigit()))
+}
+
+async fn mark_read(
+    State(state): State<AppState>,
+    Path(article_id): Path<String>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    update_read_state(&state, &article_id, Some(Utc::now().to_rfc3339())).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn mark_unread(
+    State(state): State<AppState>,
+    Path(article_id): Path<String>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    update_read_state(&state, &article_id, None).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn update_read_state(
+    state: &AppState,
+    article_id: &str,
+    read_at: Option<String>,
+) -> Result<(), (StatusCode, String)> {
+    if !valid_article_id(article_id) {
+        return Err((StatusCode::BAD_REQUEST, "article_idが不正です".into()));
+    }
+    let state_url = format!(
+        "{}/curatedz-reader-state/_doc/{article_id}",
+        state.opensearch
+    );
+    let response = match &read_at {
+        Some(read_at) => {
+            state
+                .http
+                .put(state_url)
+                .json(&json!({"article_id": article_id, "read_at": read_at}))
+                .send()
+                .await
+        }
+        None => state.http.delete(state_url).send().await,
+    }
+    .map_err(|_| (StatusCode::BAD_GATEWAY, "既読状態を保存できません".into()))?;
+    if !response.status().is_success()
+        && !(read_at.is_none() && response.status() == StatusCode::NOT_FOUND)
+    {
+        return Err((StatusCode::BAD_GATEWAY, "既読状態を保存できません".into()));
+    }
+
+    let update = match read_at {
+        Some(read_at) => json!({"doc": {"read_at": read_at}}),
+        None => json!({"script": {
+            "lang": "painless",
+            "source": "ctx._source.remove('read_at')"
+        }}),
+    };
+    let response = state
+        .http
+        .post(format!(
+            "{}/curatedz-articles/_update/{article_id}",
+            state.opensearch
+        ))
+        .json(&update)
+        .send()
+        .await
+        .map_err(|_| (StatusCode::BAD_GATEWAY, "既読状態を反映できません".into()))?;
+    if !response.status().is_success() {
+        return Err((StatusCode::BAD_GATEWAY, "既読状態を反映できません".into()));
+    }
+    Ok(())
 }
 
 #[derive(Debug, Serialize)]
@@ -309,6 +415,7 @@ async fn search(
                 .unwrap_or("")
                 .to_string();
             SearchItem {
+                article_id: source["article_id"].as_str().unwrap_or("").into(),
                 title: source["title"].as_str().unwrap_or("").into(),
                 url: source["canonical_url"].as_str().unwrap_or("").into(),
                 excerpt,
@@ -320,6 +427,14 @@ async fn search(
                     .filter_map(Value::as_str)
                     .map(Into::into)
                     .collect(),
+                topic_ids: source["topic_ids"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .map(Into::into)
+                    .collect(),
+                read_at: source["read_at"].as_str().map(Into::into),
             }
         })
         .collect();
@@ -347,8 +462,8 @@ fn search_body_on(mut query: SearchQuery, today: NaiveDate) -> Result<Value, (St
     {
         return Err((StatusCode::BAD_REQUEST, "page/sizeが不正です".into()));
     }
-    if query.source.as_ref().is_some_and(|value| value.len() > 100) {
-        return Err((StatusCode::BAD_REQUEST, "sourceが不正です".into()));
+    if query.topic.as_ref().is_some_and(|value| value.len() > 100) {
+        return Err((StatusCode::BAD_REQUEST, "topicが不正です".into()));
     }
     if query
         .date_from
@@ -358,10 +473,10 @@ fn search_body_on(mut query: SearchQuery, today: NaiveDate) -> Result<Value, (St
         return Err((StatusCode::BAD_REQUEST, "日付範囲が不正です".into()));
     }
     let mut filters = Vec::new();
-    if let Some(source) = query.source
-        && !source.is_empty()
+    if let Some(topic) = query.topic
+        && !topic.is_empty()
     {
-        filters.push(json!({"term": {"source_ids": source}}));
+        filters.push(json!({"term": {"topic_ids": topic}}));
     }
     if query.date_from.is_some() || query.date_to.is_some() {
         let mut range = serde_json::Map::new();
@@ -373,15 +488,22 @@ fn search_body_on(mut query: SearchQuery, today: NaiveDate) -> Result<Value, (St
         }
         filters.push(json!({"range": {"published_at": range}}));
     }
+    let mut must_not = Vec::new();
+    match query.read {
+        ReadFilter::All => {}
+        ReadFilter::Unread => must_not.push(json!({"exists": {"field": "read_at"}})),
+        ReadFilter::Read => filters.push(json!({"exists": {"field": "read_at"}})),
+    }
     let query = if q.is_empty() {
-        json!({"bool": {"filter": filters}})
+        json!({"bool": {"filter": filters, "must_not": must_not}})
     } else {
         json!({"bool": {
             "must": [{"multi_match": {
                 "query": q,
                 "fields": ["title^3", "description^2", "content"]
             }}],
-            "filter": filters
+            "filter": filters,
+            "must_not": must_not
         }})
     };
     let sort = if q.is_empty() {
@@ -419,6 +541,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let team = std::env::var("CF_ACCESS_TEAM_DOMAIN")?
         .trim_end_matches('/')
         .to_string();
+    let config = Config::parse(include_str!("../../../config/topics.yaml"))?;
+    let topics = config
+        .topics
+        .into_iter()
+        .map(|topic| TopicOption {
+            id: topic.id,
+            name: topic.name,
+        })
+        .collect();
     let state = AppState {
         http: reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
@@ -430,6 +561,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         audience: std::env::var("CF_ACCESS_AUD")?,
         jwks_url: format!("https://{team}/cdn-cgi/access/certs"),
         jwks: Arc::new(RwLock::new(None)),
+        topics: Arc::new(topics),
     };
     let app = app(state);
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
@@ -447,6 +579,10 @@ mod tests {
         RsaPrivateKey, RsaPublicKey,
         pkcs1::{EncodeRsaPrivateKey, EncodeRsaPublicKey},
     };
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+    };
     use tower::ServiceExt;
 
     fn state() -> AppState {
@@ -457,6 +593,10 @@ mod tests {
             audience: "audience".into(),
             jwks_url: "https://example.cloudflareaccess.com/cdn-cgi/access/certs".into(),
             jwks: Arc::new(RwLock::new(None)),
+            topics: Arc::new(vec![TopicOption {
+                id: "software-engineering".into(),
+                name: "Software Engineering".into(),
+            }]),
         }
     }
 
@@ -470,6 +610,9 @@ mod tests {
         assert!(html.contains("ログインの有効期限が切れました"));
         assert!(html.contains("prefers-reduced-motion"));
         assert!(html.contains("setDefaultDates()"));
+        assert!(html.contains("name=\"topic\""));
+        assert!(html.contains("name=\"read\""));
+        assert!(html.contains("既読にする"));
     }
 
     #[tokio::test]
@@ -488,6 +631,21 @@ mod tests {
             router
                 .clone()
                 .oneshot(Request::get("/").body(Body::empty()).unwrap())
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            router
+                .clone()
+                .oneshot(
+                    Request::put(
+                        "/api/articles/sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/read",
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+                )
                 .await
                 .unwrap()
                 .status(),
@@ -592,7 +750,8 @@ mod tests {
     fn search_query_validates_bounds_and_builds_filters() {
         let valid = search_body(SearchQuery {
             q: " Rust ".into(),
-            source: Some("feed-a".into()),
+            topic: Some("software-engineering".into()),
+            read: ReadFilter::All,
             date_from: Some(NaiveDate::from_ymd_opt(2026, 1, 1).unwrap()),
             date_to: Some(NaiveDate::from_ymd_opt(2026, 1, 31).unwrap()),
             page: Some(2),
@@ -602,14 +761,15 @@ mod tests {
         assert_eq!(valid["from"], 20);
         assert_eq!(valid["size"], 10);
         assert_eq!(
-            valid.pointer("/query/bool/filter/0/term/source_ids"),
-            Some(&json!("feed-a"))
+            valid.pointer("/query/bool/filter/0/term/topic_ids"),
+            Some(&json!("software-engineering"))
         );
 
         let invalid = |q: &str, page, size, from, to| {
             search_body(SearchQuery {
                 q: q.into(),
-                source: None,
+                topic: None,
+                read: ReadFilter::All,
                 date_from: from,
                 date_to: to,
                 page,
@@ -622,7 +782,8 @@ mod tests {
         let recent = search_body_on(
             SearchQuery {
                 q: String::new(),
-                source: None,
+                topic: None,
+                read: ReadFilter::Unread,
                 date_from: None,
                 date_to: None,
                 page: None,
@@ -642,6 +803,10 @@ mod tests {
         assert_eq!(
             recent.pointer("/sort/0/published_at/order"),
             Some(&json!("desc"))
+        );
+        assert_eq!(
+            recent.pointer("/query/bool/must_not/0/exists/field"),
+            Some(&json!("read_at"))
         );
         assert_eq!(
             invalid("x", Some(501), None, None, None),
@@ -668,10 +833,51 @@ mod tests {
     }
 
     #[test]
+    fn article_id_validation_rejects_non_sha256_values() {
+        assert!(valid_article_id(
+            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ));
+        assert!(!valid_article_id("article-1"));
+        assert!(!valid_article_id("sha256:not-hex"));
+    }
+
+    #[tokio::test]
+    async fn marking_read_persists_state_before_updating_article_projection() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let mut requests = Vec::new();
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut bytes = vec![0; 8192];
+                let size = stream.read(&mut bytes).await.unwrap();
+                requests.push(String::from_utf8_lossy(&bytes[..size]).to_string());
+                stream
+                    .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                    .await
+                    .unwrap();
+            }
+            requests
+        });
+        let mut state = state();
+        state.opensearch = base;
+        let article_id = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        update_read_state(&state, article_id, Some("2026-11-22T00:00:00Z".into()))
+            .await
+            .unwrap();
+        let requests = server.await.unwrap();
+        assert!(requests[0].starts_with("PUT /curatedz-reader-state/_doc/sha256:"));
+        assert!(requests[0].contains("2026-11-22T00:00:00Z"));
+        assert!(requests[1].starts_with("POST /curatedz-articles/_update/sha256:"));
+        assert!(requests[1].contains("read_at"));
+    }
+
+    #[test]
     fn empty_date_query_values_are_treated_as_unspecified() {
         let query: SearchQuery = serde_json::from_value(json!({
             "q": "",
-            "source": "",
+            "topic": "",
+            "read": "unread",
             "date_from": "",
             "date_to": "",
             "page": 0,

@@ -1,7 +1,7 @@
 use clap::Parser;
 use curatedz_core::{
     content::{CONTENT_HEAD_KEY, ContentCommit, ContentHead, ContentRecord},
-    model::{Discovery, Document, HEAD_KEY, Head, Manifest},
+    model::{Association, Discovery, Document, HEAD_KEY, Head, Manifest},
     store::{S3Store, Store},
 };
 use reqwest::{Client, StatusCode};
@@ -15,6 +15,7 @@ use std::{
 use tracing_subscriber::EnvFilter;
 
 const ALIAS: &str = "curatedz-articles";
+const READER_STATE_INDEX: &str = "curatedz-reader-state";
 
 fn log_filter() -> EnvFilter {
     EnvFilter::new("info,aws_config=warn")
@@ -39,6 +40,8 @@ struct Args {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 struct Checkpoint {
     rss_generation: u64,
+    #[serde(default)]
+    association_generation: u64,
     content_generation: u64,
     index: String,
 }
@@ -121,6 +124,7 @@ async fn create_index(
             "first_seen_at": {"type": "date"},
             "last_seen_at": {"type": "date"},
             "source_ids": {"type": "keyword"},
+            "topic_ids": {"type": "keyword"},
             "source_types": {"type": "keyword"},
             "feed_urls": {"type": "keyword", "index": false},
             "original_urls": {"type": "keyword", "index": false},
@@ -128,10 +132,67 @@ async fn create_index(
             "content_status": {"type": "keyword"},
             "content_fetched_at": {"type": "date"},
             "processing_status": {"type": "keyword"},
-            "processing_version": {"type": "keyword"}
+            "processing_version": {"type": "keyword"},
+            "read_at": {"type": "date"}
         }}
     });
     request(client.put(format!("{base}/{index}")).json(&mapping)).await?;
+    Ok(())
+}
+
+async fn ensure_reader_state_index(
+    client: &Client,
+    base: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let exists = client
+        .head(format!("{base}/{READER_STATE_INDEX}"))
+        .send()
+        .await?;
+    if exists.status().is_success() {
+        return Ok(());
+    }
+    if exists.status() != StatusCode::NOT_FOUND {
+        return Err(format!(
+            "Reader state indexの確認がHTTP {}で失敗しました",
+            exists.status()
+        )
+        .into());
+    }
+    let response = client
+        .put(format!("{base}/{READER_STATE_INDEX}"))
+        .json(&json!({
+            "settings": {"index": {"number_of_shards": 1, "number_of_replicas": 0}},
+            "mappings": {"dynamic": "strict", "properties": {
+                "article_id": {"type": "keyword"},
+                "read_at": {"type": "date"}
+            }}
+        }))
+        .send()
+        .await?;
+    if response.status().is_success() {
+        return Ok(());
+    }
+    Err(format!(
+        "Reader state indexの作成がHTTP {}で失敗しました",
+        response.status()
+    )
+    .into())
+}
+
+async fn ensure_article_mapping(
+    client: &Client,
+    base: &str,
+    index: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    request(
+        client
+            .put(format!("{base}/{index}/_mapping"))
+            .json(&json!({"properties": {
+                "topic_ids": {"type": "keyword"},
+                "read_at": {"type": "date"}
+            }})),
+    )
+    .await?;
     Ok(())
 }
 
@@ -212,11 +273,34 @@ fn document_bulk(index: &str, documents: Vec<Document>) -> Result<String, serde_
             "canonical_url": document.canonical_url, "title": document.title,
             "description": document.summary, "published_at": document.published_at,
             "updated_at": document.updated_at, "first_seen_at": Value::Null,
-            "last_seen_at": Value::Null, "source_ids": [], "source_types": [],
+            "last_seen_at": Value::Null, "source_ids": [], "topic_ids": [], "source_types": [],
             "feed_urls": [], "original_urls": []
         });
         body.push_str(&serde_json::to_string(&json!({
             "doc": document_fields, "upsert": upsert
+        }))?);
+        body.push('\n');
+    }
+    Ok(body)
+}
+
+fn association_bulk(
+    index: &str,
+    associations: Vec<Association>,
+) -> Result<String, serde_json::Error> {
+    let mut body = String::new();
+    for association in associations {
+        body.push_str(&serde_json::to_string(
+            &json!({"update": {"_index": index, "_id": association.document_id}}),
+        )?);
+        body.push('\n');
+        body.push_str(&serde_json::to_string(&json!({
+            "script": {
+                "lang": "painless",
+                "source": "if (ctx._source.topic_ids == null) ctx._source.topic_ids = []; if (!ctx._source.topic_ids.contains(params.topic)) ctx._source.topic_ids.add(params.topic)",
+                "params": {"topic": association.topic_id}
+            },
+            "scripted_upsert": false
         }))?);
         body.push('\n');
     }
@@ -257,22 +341,96 @@ async fn sync_rss(
         let manifest: Manifest = load(store, &run.manifest_key).await?;
         manifests.insert(manifest.generation, manifest);
     }
-    for (generation, manifest) in manifests.range((checkpoint.rss_generation + 1)..) {
-        let documents: Vec<Document> = jsonl(store, &manifest.objects["documents"]).await?;
-        let discoveries: Vec<Discovery> = jsonl(store, &manifest.objects["discoveries"]).await?;
-        let document_count = documents.len();
-        let discovery_count = discoveries.len();
-        bulk(client, base, document_bulk(index, documents)?).await?;
-        bulk(client, base, discovery_bulk(index, discoveries)?).await?;
-        checkpoint.rss_generation = *generation;
+    let first_generation = checkpoint
+        .rss_generation
+        .min(checkpoint.association_generation)
+        + 1;
+    for (generation, manifest) in manifests.range(first_generation..) {
+        let mut document_count = 0;
+        let mut discovery_count = 0;
+        let mut association_count = 0;
+        if *generation > checkpoint.rss_generation {
+            let documents: Vec<Document> = jsonl(store, &manifest.objects["documents"]).await?;
+            let discoveries: Vec<Discovery> =
+                jsonl(store, &manifest.objects["discoveries"]).await?;
+            document_count = documents.len();
+            discovery_count = discoveries.len();
+            bulk(client, base, document_bulk(index, documents)?).await?;
+            bulk(client, base, discovery_bulk(index, discoveries)?).await?;
+            checkpoint.rss_generation = *generation;
+        }
+        if *generation > checkpoint.association_generation {
+            let associations: Vec<Association> =
+                jsonl(store, &manifest.objects["associations"]).await?;
+            association_count = associations.len();
+            bulk(client, base, association_bulk(index, associations)?).await?;
+            checkpoint.association_generation = *generation;
+        }
         write_checkpoint(path, checkpoint)?;
         tracing::info!(
             stage = "opensearch_rss_sync",
             generation,
             document_count,
             discovery_count,
+            association_count,
             index
         );
+    }
+    Ok(())
+}
+
+async fn restore_reader_state(
+    client: &Client,
+    base: &str,
+    index: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut search_after: Option<Value> = None;
+    loop {
+        let mut body = json!({
+            "size": 500,
+            "query": {"match_all": {}},
+            "sort": [{"article_id": "asc"}]
+        });
+        if let Some(value) = search_after.take() {
+            body["search_after"] = value;
+        }
+        let result = request(
+            client
+                .post(format!("{base}/{READER_STATE_INDEX}/_search"))
+                .json(&body),
+        )
+        .await?;
+        let hits = result
+            .pointer("/hits/hits")
+            .and_then(Value::as_array)
+            .ok_or("Reader stateの検索応答が不正です")?;
+        if hits.is_empty() {
+            break;
+        }
+        let mut updates = String::new();
+        for hit in hits {
+            let article_id = hit
+                .pointer("/_source/article_id")
+                .and_then(Value::as_str)
+                .ok_or("Reader stateにarticle_idがありません")?;
+            let read_at = hit
+                .pointer("/_source/read_at")
+                .and_then(Value::as_str)
+                .ok_or("Reader stateにread_atがありません")?;
+            updates.push_str(&serde_json::to_string(
+                &json!({"update": {"_index": index, "_id": article_id}}),
+            )?);
+            updates.push('\n');
+            updates.push_str(&serde_json::to_string(
+                &json!({"doc": {"read_at": read_at}}),
+            )?);
+            updates.push('\n');
+        }
+        search_after = hits.last().and_then(|hit| hit.get("sort")).cloned();
+        bulk(client, base, updates).await?;
+        if hits.len() < 500 {
+            break;
+        }
     }
     Ok(())
 }
@@ -339,6 +497,7 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         .timeout(std::time::Duration::from_secs(30))
         .build()?;
     let store = S3Store::new(args.bucket).await;
+    ensure_reader_state_index(&client, base).await?;
     let mut checkpoint = if args.rebuild {
         Checkpoint::default()
     } else {
@@ -363,6 +522,7 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     } else if !exists.status().is_success() {
         return Err(format!("OpenSearch HTTP {}", exists.status()).into());
     }
+    ensure_article_mapping(&client, base, &index).await?;
     checkpoint.index = index.clone();
     sync_rss(
         &client,
@@ -383,6 +543,7 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     )
     .await?;
     if args.rebuild {
+        restore_reader_state(&client, base, &index).await?;
         request(client.post(format!("{base}/_aliases")).json(&json!({"actions": [
             {"remove": {"index": "curatedz-articles-*", "alias": ALIAS, "must_exist": false}},
             {"add": {"index": index, "alias": ALIAS}}
@@ -519,6 +680,30 @@ mod tests {
         assert!(lines[1].pointer("/doc/first_seen_at").is_none());
         assert!(lines[1].pointer("/upsert/article_id").is_some());
         assert_eq!(lines[1].pointer("/upsert/source_ids"), Some(&json!([])));
+        assert_eq!(lines[1].pointer("/upsert/topic_ids"), Some(&json!([])));
+    }
+
+    #[test]
+    fn association_update_adds_topic_without_overwriting_article() {
+        let bulk = association_bulk(
+            "index",
+            vec![Association {
+                document_id: "sha256:test".into(),
+                topic_id: "software-engineering".into(),
+                discovery_id: "discovery".into(),
+                config_version: "config".into(),
+            }],
+        )
+        .unwrap();
+        let lines: Vec<Value> = bulk
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(
+            lines[1].pointer("/script/params/topic"),
+            Some(&json!("software-engineering"))
+        );
+        assert_eq!(lines[1].get("upsert"), None);
     }
 
     #[test]
@@ -527,14 +712,28 @@ mod tests {
         let path = directory.path().join("checkpoint.json");
         let expected = Checkpoint {
             rss_generation: 3,
+            association_generation: 3,
             content_generation: 4,
             index: "index".into(),
         };
         write_checkpoint(&path, &expected).unwrap();
         let actual = read_checkpoint(&path).unwrap();
         assert_eq!(actual.rss_generation, 3);
+        assert_eq!(actual.association_generation, 3);
         assert_eq!(actual.content_generation, 4);
         assert_eq!(actual.index, "index");
+    }
+
+    #[test]
+    fn old_checkpoint_backfills_associations_from_generation_zero() {
+        let checkpoint: Checkpoint = serde_json::from_value(json!({
+            "rss_generation": 8,
+            "content_generation": 3,
+            "index": "index"
+        }))
+        .unwrap();
+        assert_eq!(checkpoint.rss_generation, 8);
+        assert_eq!(checkpoint.association_generation, 0);
     }
 
     #[tokio::test]

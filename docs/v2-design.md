@@ -21,7 +21,7 @@ v1 には既に次の性質がある。
 - Raw replay、同一 run の再開、head の CAS 競合時の再計画
 - 認証情報なしで動く fixture、ローカル Store、S3 アダプターのテスト
 
-v2 の本文取得要求、本文保存、SQS Processor、同期 worker、OpenSearch、自宅 Kubernetes、検索 API/UI はローカル実装済みである。AWS と自宅 Kubernetes へのデプロイ、container image digest の固定、Cloudflare Tunnel/Access の作成と実環境検証は未実施である。
+v2 の本文取得要求、本文保存、SQS Processor、同期 worker、OpenSearch、自宅 Kubernetes、検索 API/UI は実装済みである。AWSと自宅Kubernetesへデプロイし、CronJobによるS3からOpenSearchへの差分同期、Cloudflare Tunnel / Access配下のUI/APIからの検索を実環境で確認済みである。
 
 ## 採用アーキテクチャ
 
@@ -181,9 +181,17 @@ OpenSearch のバージョン、chart、storage class、容量、backup 方針�
 
 ## Search API/UI と境界防御
 
-Search API は OpenSearch DSL を外部へ露出せず、query、日付範囲、source ID、page/cursor に限定する。queryを省略した場合は新着記事一覧として公開日時、最終発見日時、article IDの順に決定的に並べ、queryがある場合は全文検索の関連度を優先する。
-結果は title、抜粋、公開日時、情報源、元記事 URL を返し、保存 HTML を配信しない。
+Search API は OpenSearch DSL を外部へ露出せず、query、日付範囲、topic ID、既読状態、page/size に限定する。queryを省略した場合は新着記事一覧として公開日時、最終発見日時、article IDの順に決定的に並べ、queryがある場合は全文検索の関連度を優先する。
+結果はarticle ID、title、抜粋、公開日時、topic、情報源、既読日時、元記事URLを返し、保存HTMLを配信しない。
 UI は同じ origin で API を利用するレスポンシブ Web UI とし、初期表示で新着記事を取得する。iPhone の狭い画面でも filter と結果を一列で操作できるようにする。
+
+### topicフィルタと既読状態
+
+Readerの絞り込みは情報源IDの自由入力ではなく、Git管理の設定にあるtopicを選択する。同期workerは公開済みmanifestのAssociationを読み、記事ドキュメントの`topic_ids`へ重複なく追加する。過去のAssociationを削除しない既存契約に合わせ、設定からtopicやsourceの関連を外しても過去記事の`topic_ids`は自動削除しない。Webは`GET /api/topics`でtopic IDと表示名を返し、検索APIの`topic`を`topic_ids`の完全一致filterへ変換する。
+
+既読状態は個人利用の単一ユーザー状態として扱う。記事ドキュメントの`read_at`を検索用の投影とし、`PUT /api/articles/{article_id}/read`で既読、`DELETE /api/articles/{article_id}/read`で未読へ戻す。検索APIは`read=all|unread|read`を受け付け、既定値を`unread`とする。記事リンクを開いた操作も既読更新を行うが、更新失敗時に元記事の閲覧を妨げない。
+
+既読状態の正は記事とは別の`curatedz-reader-state` indexにarticle IDごとのrecordとして保存する。既読化は状態recordを先にupsertしてから記事投影を更新し、未読化は状態recordを削除してから記事投影を更新する。途中失敗はHTTP 502として返し、同じ操作の再試行を安全にする。記事indexのrebuildではalias切り替え前に状態indexを走査して`read_at`を新indexへ復元する。OpenSearch全体を失う場合に備えた状態indexのbackupは運用上の残課題とする。
 
 Cloudflare Tunnel の ingress は UI/API Service だけを向け、OpenSearch Service は ClusterIP と NetworkPolicy で API Pod からだけ許可する。
 Cloudflare Access policy は人間が Zero Trust 上で作成し、repository に許可メールアドレスや token を固定しない。
@@ -230,8 +238,8 @@ AWS では Collector の既存指標に加え、request 数、Processor 成功/�
 
 - Phase 1: URL 正規化、ID、同一/複数 feed、日またぎ、更新、request 再送、CAS 競合
 - Phase 2: public/private/再解決 address、redirect、timeout、展開後サイズ、robots、抽出 fixture、SQS 重複、部分バッチ失敗
-- Phase 3: fake S3/OpenSearch による checkpoint、Bulk 部分失敗、upsert、0 からの rebuild、mapping 構成テスト
-- Phase 4: query validation、JWT の正当/期限切れ/issuer・audience 不一致、未認証拒否、NetworkPolicy/ingress 構成テスト、mobile viewport
+- Phase 3: fake S3/OpenSearch による checkpoint、Association投影、Bulk 部分失敗、upsert、0 からの rebuild、既読復元、mapping 構成テスト
+- Phase 4: query/topic/既読filter validation、既読更新、JWT の正当/期限切れ/issuer・audience 不一致、未認証拒否、NetworkPolicy/ingress 構成テスト、mobile viewport
 
 単体・構成テストは AWS、Cloudflare、外部 feed/site、本番 Kubernetes を必須にしない。
 実環境テストは別手順とし、明示承認なしに deploy や DNS/Access policy の変更をしない。
@@ -258,21 +266,21 @@ Phase 1 完了条件は、RSS metadata が従来どおり公開され、同じ r
 
 Phase 2 は Phase 1 の request/content 契約に依存する。
 
-### Phase 3: 自宅検索基盤（ローカル実装済み・人間による適用待ち）
+### Phase 3: 自宅検索基盤（実環境適用済み）
 
 1. [x] 自宅 Kubernetes/GitOps repositoryを確認し、Longhorn、Argo CD native OCI、手動sync、Git外Secretという既存方針を採用する。
 2. [x] OpenSearch 3.9.0 の最小単一node構成とLonghorn PVC、health probe、resource limitを定義する。
 3. [x] sync workerとcheckpoint、Bulk、別indexからaliasを切り替えるrebuild CLIを実装する。
 4. [x] OpenSearchをWeb/sync Podからだけ許可するNetworkPolicy、15分CronJob、復旧手順を追加する。
 
-Phase 3 は Phase 2 の content commit 契約に依存する。Kubernetes manifest は既存方針に従い、`infra/home-k8s-app/curatedz` に配置した。実 cluster への適用は未実施である。
+Phase 3 は Phase 2 の content commit 契約に依存する。Kubernetes manifest は既存方針に従い、`infra/home-k8s-app/curatedz` に配置した。実clusterへ適用し、CronJobによるS3の差分取得、OpenSearchへの投入、検索UIでの表示を確認済みである。
 
-### Phase 4: UI/API と Cloudflare（ローカル実装済み・Cloudflare人間作業待ち）
+### Phase 4: UI/API と Cloudflare（実環境適用済み）
 
 1. [x] query、日付、source、page/sizeに限定したAPI契約とAccess JWTの署名・issuer・audience・expiry検証を実装する。
 2. [x] responsive UIとUI/API未認証拒否テストを実装する。
 3. [x] Tunnel Deployment、Git外Secret参照、手動作成するAccess Application/Policyの手順を既存GitOps repositoryへ追加する。
-4. [ ] 人間がCloudflare Tunnel/Application/許可メールPolicyを作成し、origin bypass、API直接アクセス、iPhone/PC、NetworkPolicyを実環境で確認する。
+4. [x] Cloudflare Tunnel/Application/許可メールPolicyを作成し、Cloudflare Access配下のUI/APIから検索できることを実環境で確認する。
 
 Phase 4 は Phase 3 の mapping/API 接続契約に依存する。
 
@@ -295,8 +303,8 @@ OpenSearch と API/UI は自宅資源を使うが、永続 volume、電力、バ
 - AWS region と実運用の記事件数・平均本文サイズが未提示であり、金額の確定見積もりは deploy 前に行う。
 - robots.txt は Processor のメモリに1時間キャッシュする。Raw HTML の保持期間と本文の個人利用上の保持可否は、運用者が初回デプロイ前に決める必要がある。
 - 本文抽出には `readabilityrs` を採用し、fixture と Lambda ARM64 build で検証した。実サイトでの抽出品質確認は未実施である。
-- 自宅Kubernetesは`infra/home-k8s-app`のArgo CD native OCI、Longhornを使用する。実clusterへのsyncは人間の明示操作とする。
-- Cloudflareのzone/account、許可identity、Tunnelは人間がZero Trustで作成し、team domain、AUD、Tunnel tokenをGit外Secretとして渡す必要がある。
+- 自宅Kubernetesは`infra/home-k8s-app`のArgo CD native OCI、Longhornを使用し、実clusterへ適用済みである。構成変更のsyncは引き続き人間の明示操作とする。
+- Cloudflareのzone/account、許可identity、TunnelはZero Trustで作成済みであり、team domain、AUD、Tunnel tokenはGit外Secretとして管理する。
 - 購読記事の認証・取り込みは v2 対象外であり、cookie や credential を Processor へ渡さない。
 
-残る判断事項と人間作業は、初回デプロイと実環境検証の前提である。ローカル実装だけをもって運用開始済みとは扱わない。
+主要経路は実環境で稼働済みである。残る判断事項はRaw HTMLの保持期間、本文抽出品質、監視通知、容量・費用、バックアップと復旧訓練などの運用品質に関するものである。

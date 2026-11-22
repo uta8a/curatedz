@@ -78,5 +78,5 @@ headはDocument索引と全run参照を保持し全件読み書きする。16MiB
 CAS失敗で残った非公開バッチ・Rawの自動GCは行わない。取り込み側はバッチprefixを直接listしない。
 テーマ関連は発見履歴として蓄積し、設定から消したテーマの過去関連も保持する。
 自宅OpenSearch同期workerはS3をPullし、RSSと本文のheadで公開されたgenerationを別checkpointで追跡してDocumentをupsertする。再構築は別indexへgeneration 0から投入し、成功後にaliasを切り替える。
-GitHub OIDC・専用bootstrapとruntime permissions boundaryを準備した。mainへのマージ後に、GitHub Actions経由のアプリ実デプロイ・定期実行・障害復旧を確認する。
+GitHub OIDC・専用bootstrapとruntime permissions boundaryを準備し、GitHub Actions経由でAWSアプリを実環境へデプロイした。自宅KubernetesのCronJobによるS3からOpenSearchへの差分同期と、Cloudflare Tunnel / Access配下のUI/APIからの検索を実環境で確認済みである。
 詳細は [bootstrap手順](aws-bootstrap.md) を参照する。
