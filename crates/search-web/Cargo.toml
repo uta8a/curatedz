@@ -10,6 +10,7 @@ name = "curatedz-web"
 path = "src/main.rs"
 
 [dependencies]
+curatedz-core = { path = "../core" }
 axum.workspace = true
 chrono.workspace = true
 jsonwebtoken.workspace = true

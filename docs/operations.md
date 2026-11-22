@@ -3,7 +3,7 @@
 ## 現在の検証範囲
 
 ローカルテスト、HTTP/S3モック、CDK synth、Linux ARM64用Lambdaビルドを検証する。
-AWS認証・専用bootstrap・GitHub OIDC基盤は準備済み。アプリの実デプロイ・定期実行はGitHub Actionsから確認する。
+AWS認証・専用bootstrap・GitHub OIDC基盤とAWSアプリは実環境へ適用済みである。自宅KubernetesではCronJobがIAM Roles AnywhereでS3から差分取得し、OpenSearchへの投入とCloudflare Tunnel / Access配下のUI/APIからの閲覧を確認済みである。
 
 最初に [bootstrap・GitHub Actions手順](aws-bootstrap.md) を参照する。以下の直接デプロイ手順は管理者による障害復旧用で、通常のデプロイはActionsに任せる。
 
@@ -66,7 +66,7 @@ S3バケットは非公開・バージョニング有効である。誤更新時
 Lambdaは設定キーだけに`GetObject`でき、設定の書き込み権限を持たない。
 
 リージョンを変える場合はbootstrap先とAWS_REGIONを揃える。
-初期デプロイではSchedulerはDISABLED。出力のBucketName、FunctionName、DLQ URL、ErrorAlarmNameを記録する。
+新規環境の初期デプロイではSchedulerはDISABLED。出力のBucketName、FunctionName、DLQ URL、ErrorAlarmNameを記録する。
 `-c synthOnly=true` はテストfixtureをアセットにした構造検証専用。デプロイには使わない。
 通常のCDKアプリは実際のLinux ARM64 ELFがない場合に失敗する。
 

@@ -92,7 +92,7 @@ mainに存在しないworkflowは実行されないため、この変更をマ�
 デプロイは `--method direct` を使う。専用デプロイロールは変更セット作成や他スタック更新を許可しない。
 デプロイworkflowは直列化し、開始時にmainの先頭SHAを確認して古いCIからの遅延デプロイを拒否する。
 
-AWSデプロイ用アクセスキーやシークレットは不要。OIDCによるGitHubからの実認証とアプリの実デプロイは、workflowのmainマージ後に確認する。
+AWSデプロイ用アクセスキーやシークレットは不要。OIDCによるGitHubからの実認証とアプリの実デプロイは確認済みである。
 
 ## 実施記録（2026-11-09 JST）
 
@@ -116,7 +116,9 @@ Roles Anywhere初回利用に必要な`AWSServiceRoleForRolesAnywhere`は、Clou
 
 Event Source Mapping権限を含む`CuratedzDeploymentAccess`を管理用プロファイルで更新し、専用toolkitは変更なしであることを確認した。その後、main commit `6098ace`のCI、Runtime images、Deployがすべて成功し、`Curatedz` stackは`UPDATE_COMPLETE`となった。
 
-実環境ではRoles AnywhereのTrust Anchor、Profile、`Curatedz-HomeSync` Role、S3読み取りPolicyが作成済みである。SQSから記事処理LambdaへのEvent Source Mappingは`Enabled`、batch size 5、maximum concurrency 2であり、Lambdaのreserved concurrencyは設定していない。旧方式の`Curatedz-HomeSync` IAM Userが存在しないことも確認した。Kubernetes側へのworkload証明書配置、Roles Anywhere認証によるS3同期、OpenSearchへの投入確認は後続作業とする。
+実環境ではRoles AnywhereのTrust Anchor、Profile、`Curatedz-HomeSync` Role、S3読み取りPolicyが作成済みである。SQSから記事処理LambdaへのEvent Source Mappingは`Enabled`、batch size 5、maximum concurrency 2であり、Lambdaのreserved concurrencyは設定していない。旧方式の`Curatedz-HomeSync` IAM Userが存在しないことも確認した。
+
+その後、自宅Kubernetesへworkload証明書を配置し、CronJobがRoles Anywhere認証でS3の公開済みRSS・本文データを差分取得してOpenSearchへ投入できることを確認した。検索UI/APIはCloudflare Tunnel / Access配下で利用できる状態である。
 
 ## テンプレート保守
 
