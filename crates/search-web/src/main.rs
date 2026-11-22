@@ -145,6 +145,9 @@ async fn access_auth(
 async fn index() -> Html<&'static str> {
     Html(include_str!("index.html"))
 }
+async fn admin() -> Html<&'static str> {
+    Html(include_str!("admin.html"))
+}
 async fn health() -> &'static str {
     "ok"
 }
@@ -153,11 +156,116 @@ fn app(state: AppState) -> Router {
     let protected = Router::new()
         .route("/", get(index))
         .route("/api/search", get(search))
+        .route("/admin", get(admin))
+        .route("/api/admin/status", get(admin_status))
         .route_layer(middleware::from_fn_with_state(state.clone(), access_auth));
     Router::new()
         .route("/healthz", get(health))
         .merge(protected)
         .with_state(state)
+}
+
+#[derive(Debug, Serialize)]
+struct AdminSearchStatus {
+    status: String,
+    number_of_nodes: u64,
+    active_primary_shards: u64,
+    unassigned_shards: u64,
+}
+
+#[derive(Debug, Serialize)]
+struct AdminArticleStatus {
+    total: u64,
+    latest_published_at: Option<String>,
+    latest_seen_at: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct AdminStatus {
+    generated_at: String,
+    search: AdminSearchStatus,
+    articles: AdminArticleStatus,
+}
+
+fn admin_status_from_values(
+    health: &Value,
+    articles: &Value,
+    generated_at: String,
+) -> Result<AdminStatus, ()> {
+    let total = articles
+        .pointer("/hits/total/value")
+        .and_then(Value::as_u64)
+        .ok_or(())?;
+    Ok(AdminStatus {
+        generated_at,
+        search: AdminSearchStatus {
+            status: health
+                .get("status")
+                .and_then(Value::as_str)
+                .ok_or(())?
+                .into(),
+            number_of_nodes: health
+                .get("number_of_nodes")
+                .and_then(Value::as_u64)
+                .ok_or(())?,
+            active_primary_shards: health
+                .get("active_primary_shards")
+                .and_then(Value::as_u64)
+                .ok_or(())?,
+            unassigned_shards: health
+                .get("unassigned_shards")
+                .and_then(Value::as_u64)
+                .ok_or(())?,
+        },
+        articles: AdminArticleStatus {
+            total,
+            latest_published_at: articles
+                .pointer("/aggregations/latest_published_at/value_as_string")
+                .and_then(Value::as_str)
+                .map(Into::into),
+            latest_seen_at: articles
+                .pointer("/aggregations/latest_seen_at/value_as_string")
+                .and_then(Value::as_str)
+                .map(Into::into),
+        },
+    })
+}
+
+async fn admin_status(
+    State(state): State<AppState>,
+) -> Result<Json<AdminStatus>, (StatusCode, String)> {
+    let health_request = state.http.get(format!(
+        "{}/_cluster/health?filter_path=status,number_of_nodes,active_primary_shards,unassigned_shards",
+        state.opensearch
+    ));
+    let articles_request = state
+        .http
+        .post(format!("{}/curatedz-articles/_search", state.opensearch))
+        .json(&json!({
+            "size": 0,
+            "track_total_hits": true,
+            "aggs": {
+                "latest_published_at": {"max": {"field": "published_at"}},
+                "latest_seen_at": {"max": {"field": "last_seen_at"}}
+            }
+        }));
+    let (health, articles) = tokio::try_join!(health_request.send(), articles_request.send())
+        .map_err(|_| (StatusCode::BAD_GATEWAY, "管理情報を取得できません".into()))?;
+    let health: Value = health
+        .error_for_status()
+        .map_err(|_| (StatusCode::BAD_GATEWAY, "管理情報を取得できません".into()))?
+        .json()
+        .await
+        .map_err(|_| (StatusCode::BAD_GATEWAY, "管理情報を取得できません".into()))?;
+    let articles: Value = articles
+        .error_for_status()
+        .map_err(|_| (StatusCode::BAD_GATEWAY, "管理情報を取得できません".into()))?
+        .json()
+        .await
+        .map_err(|_| (StatusCode::BAD_GATEWAY, "管理情報を取得できません".into()))?;
+    admin_status_from_values(&health, &articles, Utc::now().to_rfc3339())
+        .map(Json)
+        .map_err(|_| (StatusCode::BAD_GATEWAY, "管理情報を取得できません".into()))
 }
 
 async fn search(
@@ -366,9 +474,10 @@ mod tests {
 
     #[tokio::test]
     async fn health_is_internal_but_ui_and_api_require_access_jwt() {
-        let app = app(state());
+        let router = app(state());
         assert_eq!(
-            app.clone()
+            router
+                .clone()
                 .oneshot(Request::get("/healthz").body(Body::empty()).unwrap())
                 .await
                 .unwrap()
@@ -376,7 +485,8 @@ mod tests {
             StatusCode::OK
         );
         assert_eq!(
-            app.clone()
+            router
+                .clone()
                 .oneshot(Request::get("/").body(Body::empty()).unwrap())
                 .await
                 .unwrap()
@@ -384,14 +494,37 @@ mod tests {
             StatusCode::UNAUTHORIZED
         );
         assert_eq!(
-            app.oneshot(
-                Request::get("/api/search?q=rust")
-                    .body(Body::empty())
-                    .unwrap()
-            )
-            .await
-            .unwrap()
-            .status(),
+            router
+                .clone()
+                .oneshot(
+                    Request::get("/api/search?q=rust")
+                        .body(Body::empty())
+                        .unwrap()
+                )
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            router
+                .clone()
+                .oneshot(Request::get("/admin").body(Body::empty()).unwrap())
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            router
+                .oneshot(
+                    Request::get("/api/admin/status")
+                        .body(Body::empty())
+                        .unwrap()
+                )
+                .await
+                .unwrap()
+                .status(),
             StatusCode::UNAUTHORIZED
         );
     }
@@ -555,5 +688,34 @@ mod tests {
             }))
             .is_err()
         );
+    }
+
+    #[test]
+    fn admin_status_exposes_only_operational_summary() {
+        let status = admin_status_from_values(
+            &json!({
+                "status": "green",
+                "number_of_nodes": 1,
+                "active_primary_shards": 2,
+                "unassigned_shards": 0
+            }),
+            &json!({
+                "hits": {"total": {"value": 10}},
+                "aggregations": {
+                    "latest_published_at": {"value_as_string": "2026-11-21T12:00:00.000Z"},
+                    "latest_seen_at": {"value_as_string": "2026-11-21T13:00:00.000Z"}
+                }
+            }),
+            "2026-11-22T00:00:00Z".into(),
+        )
+        .unwrap();
+
+        assert_eq!(status.search.status, "green");
+        assert_eq!(status.articles.total, 10);
+        assert_eq!(
+            status.articles.latest_seen_at.as_deref(),
+            Some("2026-11-21T13:00:00.000Z")
+        );
+        assert!(admin_status_from_values(&json!({}), &json!({}), "now".into()).is_err());
     }
 }
