@@ -5,7 +5,7 @@ use curatedz_core::{
     id,
     model::{ArticleQueueMessage, Manifest},
     pipeline::{Run, article_requests, execute},
-    store::S3Store,
+    store::{S3Store, Store},
 };
 use lambda_runtime::{Error, LambdaEvent, service_fn};
 use serde::Deserialize;
@@ -69,12 +69,19 @@ async fn main() -> Result<(), Error> {
         .json()
         .with_writer(std::io::stderr)
         .init();
-    let config = Config::parse(include_str!("../../../config/topics.yaml"))?;
     let bucket = std::env::var("CURATEDZ_BUCKET")?;
+    let config_key = std::env::var("CURATEDZ_CONFIG_KEY")?;
     let queue_url = std::env::var("CURATEDZ_ARTICLE_QUEUE_URL")?;
     let aws_config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
     let sqs = aws_sdk_sqs::Client::new(&aws_config);
     let store = S3Store::new(bucket.clone()).await;
+    let config_object = store
+        .get(&config_key)
+        .await?
+        .ok_or_else(|| format!("S3に設定がありません: {config_key}"))?;
+    let config_yaml = std::str::from_utf8(&config_object.bytes)
+        .map_err(|_| "S3の設定はUTF-8 YAMLである必要があります")?;
+    let config = Config::parse(config_yaml)?;
     let fetcher = HttpFetcher::new(config.http.clone())?;
     lambda_runtime::run(service_fn(|event: LambdaEvent<Event>| {
         let config = &config;

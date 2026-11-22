@@ -87,7 +87,8 @@ PRは日本語で、変更理由、検証結果、未実施事項、後続作業
 ## CLIと検証データ
 
 実行例は [README](../README.md) を参照。
-fixtures/topics.yamlとfixture RSSは外部アクセスなしのテスト用。config/topics.yamlは実運用向けの設定例。
+fixtures/topics.yamlとfixture RSSは外部アクセスなしのテスト用。config/topics.yamlは形式確認用の公開例。
+実運用設定はS3の`config/v1/topics.yaml`に置き、リポジトリへ追加しない。
 `--fixtures fixtures` は各情報源IDの `<id>.xml` を読む。URLは正規化のbase URIとして利用する。
 CLIはstdoutにmanifest、stderrに構造化ログを出す。成功0、部分成功2、全件失敗1。
 単体テストは一時ディレクトリまたはMemoryStoreを使用し、実行後にGit管理データを残さない。

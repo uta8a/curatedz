@@ -16,6 +16,8 @@ export interface CollectorProps extends cdk.StackProps {
   scheduleEnabled: boolean;
 }
 
+const CONFIG_KEY = 'config/v1/topics.yaml';
+
 export class CollectorStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: CollectorProps) {
     super(scope, id, props);
@@ -120,6 +122,7 @@ export class CollectorStack extends cdk.Stack {
       logGroup,
       environment: {
         CURATEDZ_BUCKET: bucket.bucketName,
+        CURATEDZ_CONFIG_KEY: CONFIG_KEY,
         CURATEDZ_ARTICLE_QUEUE_URL: articleRequests.queueUrl,
       },
     });
@@ -159,6 +162,10 @@ export class CollectorStack extends cdk.Stack {
         resources: [bucket.arnForObjects(`${prefix}*`)],
       }));
     }
+    collector.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['s3:GetObject'],
+      resources: [bucket.arnForObjects(CONFIG_KEY)],
+    }));
     // 存在しないキーのGetObjectを403ではなく404として判別するための権限。
     collector.addToRolePolicy(new iam.PolicyStatement({
       actions: ['s3:ListBucket'], resources: [bucket.bucketArn],

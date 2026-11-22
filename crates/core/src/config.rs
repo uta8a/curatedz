@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use url::Url;
 
+pub const MAX_SOURCES: usize = 200;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
@@ -81,13 +83,13 @@ impl Config {
     pub fn validate(&self) -> Result<()> {
         if self.schema_version != 1
             || self.sources.is_empty()
-            || self.sources.len() > 20
+            || self.sources.len() > MAX_SOURCES
             || self.topics.is_empty()
             || self.topics.len() > 100
         {
-            return Err(Error::Config(
-                "schema_version=1、情報源1〜20件、テーマ1〜100件が必要です".into(),
-            ));
+            return Err(Error::Config(format!(
+                "schema_version=1、情報源1〜{MAX_SOURCES}件、テーマ1〜100件が必要です"
+            )));
         }
         let mut ids = BTreeSet::new();
         let mut urls = BTreeSet::new();
@@ -148,5 +150,36 @@ impl Config {
             values.sort();
         }
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config_with_sources(count: usize) -> Config {
+        let sources: Vec<_> = (0..count)
+            .map(|index| Source {
+                id: format!("source-{index}"),
+                url: format!("https://example.com/{index}.xml"),
+            })
+            .collect();
+        Config {
+            schema_version: 1,
+            topics: vec![Topic {
+                id: "all".into(),
+                name: "All".into(),
+                description: String::new(),
+                sources: sources.iter().map(|source| source.id.clone()).collect(),
+            }],
+            sources,
+            http: HttpConfig::default(),
+        }
+    }
+
+    #[test]
+    fn accepts_catalog_size_but_rejects_over_limit() {
+        assert!(config_with_sources(MAX_SOURCES).validate().is_ok());
+        assert!(config_with_sources(MAX_SOURCES + 1).validate().is_err());
     }
 }

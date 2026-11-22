@@ -33,6 +33,7 @@ test('非公開保存、定期実行、DLQ、最小権限を構成する', () =>
   template.hasResourceProperties('AWS::Lambda::Function', {
     Environment: { Variables: Match.objectLike({
       CURATEDZ_BUCKET: Match.anyValue(), CURATEDZ_ARTICLE_QUEUE_URL: Match.anyValue(),
+      CURATEDZ_CONFIG_KEY: 'config/v1/topics.yaml',
     }) },
   });
   template.hasResource('AWS::S3::Bucket', { DeletionPolicy: 'Retain' });
@@ -58,6 +59,7 @@ test('非公開保存、定期実行、DLQ、最小権限を構成する', () =>
   assert.ok(policies.includes('sqs:SendMessage'));
   assert.ok(policies.includes('s3:prefix'));
   assert.ok(policies.includes('article-requests/v1/*'));
+  assert.ok(policies.includes('config/v1/topics.yaml'));
   const managed = JSON.stringify(template.findResources('AWS::IAM::ManagedPolicy'));
   assert.ok(managed.includes('article-content/v1/'));
   assert.ok(managed.includes('s3:GetObject'));
